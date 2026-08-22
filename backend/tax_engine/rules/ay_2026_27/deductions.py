@@ -1,0 +1,6 @@
+from decimal import Decimal
+
+STANDARD_DEDUCTION_OLD = Decimal("50000")
+STANDARD_DEDUCTION_NEW = Decimal("75000")
+SECTION_80C_CAP = Decimal("150000")
+SECTION_80CCD_1B_CAP = Decimal("50000")

@@ -2,7 +2,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS, PROJECT_NAME, PROJECT_VERSION, API_V1_STR
 from database import Base, engine
-from routes import auth, tax_profile
+from routes import auth, tax_profile, tax
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -25,6 +25,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix=API_V1_STR)
 app.include_router(tax_profile.router, prefix=API_V1_STR)
+app.include_router(tax.router)
 
 @app.get("/")
 def read_root():
