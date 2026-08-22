@@ -14,7 +14,9 @@ class IncomeBreakdown:
     salary: Decimal
     pension: Decimal
     house_property: Decimal
+    house_property_loss: Decimal
     house_property_loss_set_off: Decimal
+    house_property_loss_carried_forward: Decimal
     other_sources: Decimal
     standard_deduction: Decimal
     gross_total_income: Decimal
@@ -54,4 +56,6 @@ def calculate_income(profile: TaxProfileCreate, regime: str) -> IncomeBreakdown:
     standard_deduction = min(salary + pension, standard_cap)
     loss_set_off = min(-house_property, PROPERTY_LOSS_SET_OFF_LIMIT) if house_property < ZERO and regime == "old" else ZERO
     gross_total_income = salary + pension + other_sources + house_property + loss_set_off
-    return IncomeBreakdown(salary, pension, house_property, loss_set_off, other_sources, standard_deduction, gross_total_income)
+    loss = max(ZERO, -house_property)
+    carried_forward = max(ZERO, loss - loss_set_off)
+    return IncomeBreakdown(salary, pension, house_property, loss, loss_set_off, carried_forward, other_sources, standard_deduction, gross_total_income)

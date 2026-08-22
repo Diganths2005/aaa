@@ -11,6 +11,7 @@ class TaxProfile(Base):
     # Taxpayer identity and return period.
     date_of_birth = Column(String)
     pan_number = Column(String, unique=True, index=True)
+    aadhaar_number = Column(String)
     gender = Column(String)
     marital_status = Column(String)
     address = Column(Text)

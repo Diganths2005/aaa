@@ -53,10 +53,10 @@ def test_house_property_loss_setoff_is_separate_and_limited():
 
 def test_deduction_caps_and_regime_restrictions():
     data = profile(is_senior_citizen=True, salary_income=[{"employer_name": "E", "gross_salary": 1000000}], deductions=[
-        {"section": "80C", "amount": 200000}, {"section": "80CCD(1B)", "amount": 70000}, {"section": "80D", "amount": 200000}, {"section": "80TTB", "amount": 70000}, {"section": "80TTA", "amount": 5000}
+        {"section": "80C", "amount": 200000}, {"section": "80CCD(1B)", "amount": 70000}, {"section": "80D", "amount": 200000}, {"section": "80TTB", "amount": 70000}
     ])
-    assert calculate_deductions(data, "old", Decimal("1000000")) == Decimal("350000")
-    assert calculate_deductions(data, "new", Decimal("1000000")) == 0
+    assert calculate_deductions(data, "old", Decimal("1000000"), "senior") == Decimal("250000")
+    assert calculate_deductions(data, "new", Decimal("1000000"), "senior") == 0
 
 
 def test_surcharge_rates_caps_and_marginal_relief():

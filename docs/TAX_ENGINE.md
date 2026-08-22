@@ -14,7 +14,7 @@ New regime slabs: up to Rs 4,00,000 nil; Rs 4,00,001-8,00,000 5%; Rs 8,00,001-12
 
 Old regime slabs for individuals are up to Rs 2,50,000 nil, then 5% to Rs 5,00,000, 20% to Rs 10,00,000, and 30% above. The nil slab is Rs 3,00,000 for resident senior citizens and Rs 5,00,000 for resident super-senior citizens. Age is derived from date of birth on 31 March 2026 where available; non-residents use the individual slabs. Section 87A rebate, surcharge with threshold marginal relief, and 4% health and education cess are separate layers. Special-rate income is excluded from the 87A rebate calculation; the current ITR-1 subset has no special-rate capital-gain input.
 
-The deduction layer allowlists sections and applies AY-specific caps for 80C, 80CCD(1B), 80CCD(2), 80D, 80DD, 80DDB, 80E, 80EE, 80EEA, 80G, 80GG, 80TTA, 80TTB, and 80U. Eligibility inputs are intentionally conservative where a complete proof or supporting fact is not present in the Phase 1 profile.
+The deduction layer has explicit old/new regime allowlists and structured metadata. It calculates 80C, 80CCD(1B), 80CCD(2), 80D (self/family and parents, including parent age), 80TTA, 80TTB, and validated loan/disability/rent/donation paths. 80CCD(2) uses basic salary plus qualifying dearness allowance, with 14% for the new regime or government employer and 10% for other old-regime employers. Sections requiring facts or proof not present in the profile return `INSUFFICIENT_DEDUCTION_DATA`, `INELIGIBLE_DEDUCTION`, or `INVALID_DEDUCTION`; the engine never guesses a deduction from an amount alone.
 
 ## API
 

@@ -61,6 +61,27 @@ class Investment(BaseModel):
 class Deduction(BaseModel):
     section: str = Field(min_length=2, max_length=20)
     amount: Money = Field(ge=0)
+    self_health_insurance: Money = Field(default=Decimal("0"), ge=0)
+    family_health_insurance: Money = Field(default=Decimal("0"), ge=0)
+    parents_health_insurance: Money = Field(default=Decimal("0"), ge=0)
+    parents_senior: bool = False
+    taxpayer_age_category: Optional[Literal["individual", "senior", "super_senior"]] = None
+    employer_contribution: Money = Field(default=Decimal("0"), ge=0)
+    employer_is_government: bool = False
+    basic_salary: Money = Field(default=Decimal("0"), ge=0)
+    dearness_allowance_for_retirement: Money = Field(default=Decimal("0"), ge=0)
+    donation_category: Optional[Literal["100_no_limit", "50_no_limit", "100_qualifying_limit", "50_qualifying_limit"]] = None
+    qualifying_limit: Money = Field(default=Decimal("0"), ge=0)
+    annual_rent: Money = Field(default=Decimal("0"), ge=0)
+    salary_for_80gg: Money = Field(default=Decimal("0"), ge=0)
+    owns_residential_property: bool = False
+    education_loan_interest: Money = Field(default=Decimal("0"), ge=0)
+    education_loan_eligible: Optional[bool] = None
+    disability_percentage: Optional[int] = Field(default=None, ge=40, le=100)
+    is_dependent: Optional[bool] = None
+    medical_expenditure: Money = Field(default=Decimal("0"), ge=0)
+    loan_sanction_date: Optional[str] = None
+    first_home_owner: Optional[bool] = None
 
 class TaxPayment(BaseModel):
     tax_type: Literal["tds", "advance_tax", "self_assessment"]
@@ -92,6 +113,7 @@ class TaxProfileCreate(BaseModel):
 
     date_of_birth: Optional[str] = None
     pan_number: Optional[str] = None
+    aadhaar_number: Optional[str] = None
     gender: Optional[str] = None
     marital_status: Optional[str] = None
     address: Optional[str] = None
@@ -141,6 +163,13 @@ class TaxProfileCreate(BaseModel):
     def valid_pincode(cls, value: Optional[str]) -> Optional[str]:
         if value is not None and not re.fullmatch(r"[1-9][0-9]{5}", value.strip()):
             raise ValueError("PIN code must be a valid six-digit Indian PIN")
+        return value
+
+    @field_validator("financial_year")
+    @classmethod
+    def valid_financial_year(cls, value: str) -> str:
+        if value != "2025-26":
+            raise ValueError("AY 2026-27 profiles must use FY 2025-26")
         return value
 
 class TaxProfileUpdate(TaxProfileCreate):

@@ -35,7 +35,7 @@ def calculate_tax(profile: TaxProfileCreate, regime: str) -> TaxCalculationResul
         raise TaxEngineError("UNSUPPORTED_FOREIGN_INCOME", "Foreign income and assets are planned for Phase 2B")
 
     income = calculate_income(profile, regime)
-    deductions = calculate_deductions(profile, regime, income.salary)
+    deductions = calculate_deductions(profile, regime, income.salary, taxpayer_age_category(profile))
     total_deductions = income.standard_deduction + deductions
     taxable_income = max(ZERO, round_rupee(income.gross_total_income - income.standard_deduction - deductions))
     if regime == "new":
@@ -64,7 +64,9 @@ def calculate_tax(profile: TaxProfileCreate, regime: str) -> TaxCalculationResul
         income_from_salary=round_rupee(income.salary),
         income_from_pension=round_rupee(income.pension),
         house_property_income=round_rupee(income.house_property),
+        house_property_loss=round_rupee(income.house_property_loss),
         house_property_loss_set_off=round_rupee(income.house_property_loss_set_off),
+        house_property_loss_carried_forward=round_rupee(income.house_property_loss_carried_forward),
         other_sources_income=round_rupee(income.other_sources),
         gross_total_income=round_rupee(income.gross_total_income),
         total_deductions=round_rupee(total_deductions),

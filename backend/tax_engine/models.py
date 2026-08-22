@@ -18,7 +18,9 @@ class TaxCalculationResult(BaseModel):
     income_from_salary: Decimal
     income_from_pension: Decimal
     house_property_income: Decimal
+    house_property_loss: Decimal
     house_property_loss_set_off: Decimal
+    house_property_loss_carried_forward: Decimal
     other_sources_income: Decimal
     assessment_year: str
     gross_total_income: Decimal
