@@ -30,7 +30,7 @@ def create_tax_profile(
     new_profile = TaxProfile(
         id=generate_id(),
         user_id=current_user.id,
-        **profile_data.dict()
+        **profile_data.model_dump(mode="json")
     )
     
     db.add(new_profile)
@@ -94,7 +94,7 @@ def update_tax_profile(
         )
     
     # Update fields
-    for field, value in profile_data.dict().items():
+    for field, value in profile_data.model_dump(mode="json").items():
         setattr(profile, field, value)
     
     db.commit()

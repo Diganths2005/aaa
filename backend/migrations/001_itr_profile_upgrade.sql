@@ -1,0 +1,28 @@
+-- Tax Profile upgrade for AY 2026-27.
+-- Apply with the project's migration runner; do not drop tax_profiles.
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS citizenship VARCHAR;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS nationality VARCHAR;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS financial_year VARCHAR NOT NULL DEFAULT '2025-26';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS assessment_year VARCHAR NOT NULL DEFAULT '2026-27';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS is_senior_citizen BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS is_director BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS has_unlisted_equity BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS has_foreign_assets BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS has_foreign_income BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS has_business_income BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS has_speculative_income BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS has_carry_forward_loss BOOLEAN NOT NULL DEFAULT FALSE;
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS pension_income JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS house_properties JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS capital_gains JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS business_income JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS foreign_income_assets JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS taxes_paid JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS bank_accounts JSONB NOT NULL DEFAULT '[]';
+
+-- Existing JSON collections are retained where their names match the new contract.
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS salary_income JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS other_income JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS investments JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS deductions JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS documents JSONB NOT NULL DEFAULT '[]';

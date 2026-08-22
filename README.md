@@ -23,8 +23,8 @@ taxwise/
 ### Phase 1: Foundation (Current)
 - ✅ User Authentication (Login/Signup)
 - ✅ Dashboard
-- ✅ Tax Profile Creation
-- ✅ Multi-step form for tax data collection
+- ✅ Tax Profile Creation for AY 2026-27
+- ✅ Six-step structured profile for future ITR-1, ITR-2, ITR-3 and ITR-4 preparation
 - ⏳ Data persistence
 
 ### Phase 2: Tax Engine
@@ -128,7 +128,7 @@ Once backend is running, visit `http://localhost:8000/docs` for Swagger UI.
 - Business logic in utilities
 
 ### Database Migrations
-Current setup uses SQLAlchemy with automatic table creation.
+The development setup uses SQLAlchemy table creation. Existing PostgreSQL databases must apply `backend/migrations/001_itr_profile_upgrade.sql`; it adds fields without destroying profile rows. No ITR decision engine, tax engine, ITD integration, or bank integration is included yet.
 
 For production:
 ```bash

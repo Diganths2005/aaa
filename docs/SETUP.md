@@ -1,3 +1,8 @@
+## Tax Profile data upgrade
+
+The AY 2026-27 profile stores repeatable, typed sections for salary, pension, house property, other income, capital gains, business/professional income, foreign income/assets, investments, deductions, tax payments, bank accounts, and voluntary document references. It records the flags needed by a future ITR-1/2/3/4 eligibility step, but it does not select an ITR or calculate tax yet.
+
+For an existing PostgreSQL database, apply `backend/migrations/001_itr_profile_upgrade.sql` before deploying the updated backend. The migration only adds columns and keeps existing rows. Local environment files, PAN values, and complete bank account numbers must not be committed or logged.
 # TaxWise Setup Guide
 
 ## Prerequisites

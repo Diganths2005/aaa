@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { AuthStore, User } from '@/types';
-import { authAPI } from './api';
+import { authAPI } from '@/lib/api';
 import Cookies from 'js-cookie';
 
 export const useAuthStore = create<AuthStore>((set) => ({

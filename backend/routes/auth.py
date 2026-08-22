@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Header
 from sqlalchemy.orm import Session
 from schemas.user import UserCreate, UserLogin, UserResponse
 from models.user import User
@@ -7,6 +7,27 @@ from utils.auth import get_password_hash, verify_password, create_access_token
 from utils.common import generate_id
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+def get_current_user(authorization: str = Header(default=""), db: Session = Depends(get_db)) -> User:
+    credential_exception = HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Could not validate credentials",
+        headers={"WWW-Authenticate": "Bearer"},
+    )
+    scheme, _, token = authorization.partition(" ")
+    if scheme.lower() != "bearer" or not token:
+        raise credential_exception
+
+    from utils.auth import decode_token
+    payload = decode_token(token)
+    user_id = payload.get("sub") if payload else None
+    if not user_id:
+        raise credential_exception
+
+    user = db.query(User).filter(User.id == user_id).first()
+    if user is None:
+        raise credential_exception
+    return user
 
 @router.post("/signup", response_model=dict)
 def signup(user: UserCreate, db: Session = Depends(get_db)):
@@ -86,30 +107,3 @@ def logout():
 def get_me(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     return current_user
 
-def get_current_user(token: str = None, db: Session = Depends(get_db)) -> User:
-    """Get current authenticated user from token"""
-    from fastapi import Header
-    
-    credential_exception = HTTPException(
-        status_code=status.HTTP_401_UNAUTHORIZED,
-        detail="Could not validate credentials",
-        headers={"WWW-Authenticate": "Bearer"},
-    )
-    
-    if not token:
-        raise credential_exception
-    
-    from utils.auth import decode_token
-    payload = decode_token(token)
-    if payload is None:
-        raise credential_exception
-    
-    user_id: str = payload.get("sub")
-    if user_id is None:
-        raise credential_exception
-    
-    user = db.query(User).filter(User.id == user_id).first()
-    if user is None:
-        raise credential_exception
-    
-    return user
