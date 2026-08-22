@@ -21,7 +21,14 @@ export interface CapitalGain { asset_type: 'equity' | 'mutual_fund' | 'property'
 export interface BusinessIncome { business_name: string; nature_of_business: string; gross_receipts: Money; net_profit_or_loss: Money; presumptive_section?: '44AD' | '44ADA' | '44AE'; }
 export interface ForeignIncomeAsset { country: string; item_type: 'income' | 'bank_account' | 'security' | 'immovable_property'; description: string; value: Money; }
 export interface Investment { investment_type: string; amount: Money; }
-export interface Deduction { section: string; amount: Money; }
+export interface Deduction {
+  section: string; amount: Money; self_health_insurance?: Money; family_health_insurance?: Money; parents_health_insurance?: Money;
+  parents_senior?: boolean; employer_contribution?: Money; employer_is_government?: boolean; basic_salary?: Money;
+  dearness_allowance_for_retirement?: Money; donation_category?: '100_no_limit' | '50_no_limit' | '100_qualifying_limit' | '50_qualifying_limit';
+  specified_disease?: boolean; reimbursement_amount?: Money; annual_rent?: Money; owns_residential_property?: boolean; has_hra?: boolean;
+  education_loan_interest?: Money; education_loan_eligible?: boolean; disability_percentage?: number; is_dependent?: boolean;
+  medical_expenditure?: Money; loan_sanction_date?: string; first_home_owner?: boolean; property_stamp_duty_value?: Money; loan_amount?: Money;
+}
 export interface TaxPayment { tax_type: 'tds' | 'advance_tax' | 'self_assessment'; amount: Money; reference?: string; }
 export interface BankAccount { bank_name: string; account_number: string; ifsc_code: string; account_type: 'savings' | 'current' | 'nro' | 'nre'; is_primary: boolean; }
 export interface DocumentReference { document_type: 'form_16' | 'ais' | 'form_26as' | 'bank_statement' | 'investment' | 'other'; file_name: string; uploaded_at?: string; }

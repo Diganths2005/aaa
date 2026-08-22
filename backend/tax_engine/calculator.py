@@ -35,13 +35,15 @@ def calculate_tax(profile: TaxProfileCreate, regime: str) -> TaxCalculationResul
         raise TaxEngineError("UNSUPPORTED_FOREIGN_INCOME", "Foreign income and assets are planned for Phase 2B")
 
     income = calculate_income(profile, regime)
-    deductions = calculate_deductions(profile, regime, income.salary, taxpayer_age_category(profile))
+    age_category = taxpayer_age_category(profile)
+    adjusted_total_income = max(ZERO, income.gross_total_income - income.standard_deduction)
+    deductions = calculate_deductions(profile, regime, income.salary, age_category, adjusted_total_income)
     total_deductions = income.standard_deduction + deductions
     taxable_income = max(ZERO, round_rupee(income.gross_total_income - income.standard_deduction - deductions))
     if regime == "new":
         tax_before_rebate = slab_tax(taxable_income, NEW_REGIME_SLABS)
     else:
-        category = taxpayer_age_category(profile)
+        category = age_category
         tax_before_rebate = slab_tax(taxable_income, OLD_REGIME_SLABS[category])
 
     rebate = round_rupee(calculate_rebate(taxable_income, tax_before_rebate, regime, profile.residential_status == "resident"))

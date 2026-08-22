@@ -72,9 +72,12 @@ class Deduction(BaseModel):
     dearness_allowance_for_retirement: Money = Field(default=Decimal("0"), ge=0)
     donation_category: Optional[Literal["100_no_limit", "50_no_limit", "100_qualifying_limit", "50_qualifying_limit"]] = None
     qualifying_limit: Money = Field(default=Decimal("0"), ge=0)
+    specified_disease: Optional[bool] = None
+    reimbursement_amount: Money = Field(default=Decimal("0"), ge=0)
     annual_rent: Money = Field(default=Decimal("0"), ge=0)
     salary_for_80gg: Money = Field(default=Decimal("0"), ge=0)
     owns_residential_property: bool = False
+    has_hra: Optional[bool] = None
     education_loan_interest: Money = Field(default=Decimal("0"), ge=0)
     education_loan_eligible: Optional[bool] = None
     disability_percentage: Optional[int] = Field(default=None, ge=40, le=100)
@@ -82,6 +85,8 @@ class Deduction(BaseModel):
     medical_expenditure: Money = Field(default=Decimal("0"), ge=0)
     loan_sanction_date: Optional[str] = None
     first_home_owner: Optional[bool] = None
+    property_stamp_duty_value: Money = Field(default=Decimal("0"), ge=0)
+    loan_amount: Money = Field(default=Decimal("0"), ge=0)
 
 class TaxPayment(BaseModel):
     tax_type: Literal["tds", "advance_tax", "self_assessment"]
