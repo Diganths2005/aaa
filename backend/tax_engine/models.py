@@ -1,11 +1,12 @@
 from decimal import Decimal
-from typing import Literal, Optional
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
 from schemas.tax_profile import TaxProfileCreate
 
 Regime = Literal["old", "new"]
+RecommendedRegime = Literal["old", "new", "equal"]
 
 
 class TaxCalculationInput(BaseModel):
@@ -14,6 +15,11 @@ class TaxCalculationInput(BaseModel):
 
 
 class TaxCalculationResult(BaseModel):
+    income_from_salary: Decimal
+    income_from_pension: Decimal
+    house_property_income: Decimal
+    house_property_loss_set_off: Decimal
+    other_sources_income: Decimal
     assessment_year: str
     gross_total_income: Decimal
     total_deductions: Decimal
@@ -42,9 +48,12 @@ class TaxCalculationResult(BaseModel):
 class RegimeComparison(BaseModel):
     old_regime: TaxCalculationResult
     new_regime: TaxCalculationResult
-    recommended_regime: Regime
+    recommended_regime: RecommendedRegime
     estimated_saving: Decimal = Field(ge=0)
 
 
 class TaxEngineError(ValueError):
-    pass
+    def __init__(self, code: str, message: str):
+        self.code = code
+        self.message = message
+        super().__init__(message)

@@ -1,8 +1,10 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
+from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS, PROJECT_NAME, PROJECT_VERSION, API_V1_STR
 from database import Base, engine
 from routes import auth, tax_profile, tax
+from tax_engine.models import TaxEngineError
 
 # Create tables
 Base.metadata.create_all(bind=engine)
@@ -12,6 +14,10 @@ app = FastAPI(
     title=PROJECT_NAME,
     version=PROJECT_VERSION,
 )
+
+@app.exception_handler(TaxEngineError)
+async def tax_engine_error_handler(request: Request, exc: TaxEngineError):
+    return JSONResponse(status_code=422, content={"error": {"code": exc.code, "message": exc.message}})
 
 # CORS middleware
 app.add_middleware(

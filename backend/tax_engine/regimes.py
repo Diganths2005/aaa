@@ -1,5 +1,6 @@
-from decimal import Decimal, ROUND_HALF_UP
+from decimal import Decimal
 from typing import Iterable, Optional
+from .rounding import round_rupee
 
 
 def slab_tax(income: Decimal, slabs: Iterable[tuple[Optional[Decimal], Decimal]]) -> Decimal:
@@ -15,4 +16,4 @@ def slab_tax(income: Decimal, slabs: Iterable[tuple[Optional[Decimal], Decimal]]
         if upper is None or income <= upper:
             break
         lower = upper
-    return tax.quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+    return round_rupee(tax)

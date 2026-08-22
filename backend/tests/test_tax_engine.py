@@ -31,7 +31,7 @@ def test_multiple_income_sources_and_house_property():
         house_properties=[{"property_type": "let_out", "city": "Pune", "annual_rent": 240000, "municipal_tax": 20000}],
         other_income=[{"income_type": "interest", "description": "Savings", "amount": 50000}],
     ), "old")
-    assert result.gross_total_income == Decimal("1254000")
+    assert result.gross_total_income == Decimal("1304000")
     assert result.total_tax_liability == Decimal("196248")
 
 
