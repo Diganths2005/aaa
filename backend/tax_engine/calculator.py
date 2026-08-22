@@ -2,6 +2,7 @@ from decimal import Decimal
 
 from schemas.tax_profile import TaxProfileCreate
 
+from .capital_gains import summarize_capital_gains
 from .cess import calculate_cess
 from .deductions import calculate_deductions
 from .income import calculate_income, taxpayer_age_category
@@ -27,32 +28,34 @@ def calculate_tax(profile: TaxProfileCreate, regime: str) -> TaxCalculationResul
         raise TaxEngineError("INVALID_ASSESSMENT_YEAR", "Only AY 2026-27 is supported")
     if regime not in {"old", "new"}:
         raise TaxEngineError("INVALID_REGIME", "Regime must be old or new")
-    if profile.capital_gains:
-        raise TaxEngineError("UNSUPPORTED_CAPITAL_GAINS", "Capital gains, including limited Section 112A cases, are planned for Phase 2B")
     if profile.business_income:
         raise TaxEngineError("UNSUPPORTED_BUSINESS_INCOME", "Business and professional income is planned for Phase 2B")
     if profile.foreign_income_assets:
         raise TaxEngineError("UNSUPPORTED_FOREIGN_INCOME", "Foreign income and assets are planned for Phase 2B")
 
     income = calculate_income(profile, regime)
+    capital_gains = summarize_capital_gains(profile.capital_gains)
     age_category = taxpayer_age_category(profile)
-    adjusted_total_income = max(ZERO, income.gross_total_income - income.standard_deduction)
+    ordinary_gross_total_income = income.gross_total_income + capital_gains.ordinary_short_term_capital_gain
+    adjusted_total_income = max(ZERO, ordinary_gross_total_income - income.standard_deduction)
     deductions = calculate_deductions(profile, regime, income.salary, age_category, adjusted_total_income)
     total_deductions = income.standard_deduction + deductions
-    taxable_income = max(ZERO, round_rupee(income.gross_total_income - income.standard_deduction - deductions))
+    ordinary_taxable_income = max(ZERO, round_rupee(ordinary_gross_total_income - income.standard_deduction - deductions))
+    taxable_income = ordinary_taxable_income + capital_gains.special_rate_capital_gain
     if regime == "new":
-        tax_before_rebate = slab_tax(taxable_income, NEW_REGIME_SLABS)
+        ordinary_tax = slab_tax(ordinary_taxable_income, NEW_REGIME_SLABS)
     else:
         category = age_category
-        tax_before_rebate = slab_tax(taxable_income, OLD_REGIME_SLABS[category])
+        ordinary_tax = slab_tax(ordinary_taxable_income, OLD_REGIME_SLABS[category])
+    tax_before_rebate = ordinary_tax + capital_gains.special_rate_tax
 
-    rebate = round_rupee(calculate_rebate(taxable_income, tax_before_rebate, regime, profile.residential_status == "resident"))
+    rebate = round_rupee(calculate_rebate(ordinary_taxable_income, ordinary_tax, regime, profile.residential_status == "resident"))
     tax_after_rebate = max(ZERO, tax_before_rebate - rebate)
 
     def tax_at_income(value: Decimal) -> Decimal:
         if regime == "new":
-            return slab_tax(value, NEW_REGIME_SLABS)
-        return slab_tax(value, OLD_REGIME_SLABS[taxpayer_age_category(profile)])
+            return slab_tax(max(ZERO, value - capital_gains.special_rate_capital_gain), NEW_REGIME_SLABS) + capital_gains.special_rate_tax
+        return slab_tax(max(ZERO, value - capital_gains.special_rate_capital_gain), OLD_REGIME_SLABS[taxpayer_age_category(profile)]) + capital_gains.special_rate_tax
 
     surcharge = calculate_surcharge(tax_after_rebate, taxable_income, regime, tax_at_income)
     cess = calculate_cess(tax_after_rebate, surcharge)
@@ -70,7 +73,10 @@ def calculate_tax(profile: TaxProfileCreate, regime: str) -> TaxCalculationResul
         house_property_loss_set_off=round_rupee(income.house_property_loss_set_off),
         house_property_loss_carried_forward=round_rupee(income.house_property_loss_carried_forward),
         other_sources_income=round_rupee(income.other_sources),
-        gross_total_income=round_rupee(income.gross_total_income),
+        capital_gains=capital_gains,
+        ordinary_taxable_income=ordinary_taxable_income,
+        capital_gains_tax=capital_gains.special_rate_tax,
+        gross_total_income=round_rupee(ordinary_gross_total_income + capital_gains.special_rate_capital_gain),
         total_deductions=round_rupee(total_deductions),
         taxable_income=taxable_income,
         tax_before_rebate=tax_before_rebate,

@@ -1,9 +1,9 @@
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 import re
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_serializer, field_validator
+from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
 Money = Decimal
 
@@ -37,12 +37,26 @@ class OtherIncome(BaseModel):
     tds: Money = Field(default=0, ge=0)
 
 class CapitalGain(BaseModel):
-    asset_type: Literal["equity", "mutual_fund", "property", "other"]
-    holding_period: Literal["short_term", "long_term"]
-    sale_value: Money = Field(ge=0)
-    cost_of_acquisition: Money = Field(ge=0)
+    # `asset_type` stays open so the engine can return a structured unsupported-asset error.
+    asset_type: str = Field(min_length=1, max_length=50)
+    acquisition_date: Optional[date] = None
+    sale_date: Optional[date] = None
+    sale_consideration: Optional[Money] = Field(default=None, ge=0, validation_alias=AliasChoices("sale_consideration", "sale_value"))
+    acquisition_cost: Optional[Money] = Field(default=None, ge=0, validation_alias=AliasChoices("acquisition_cost", "cost_of_acquisition"))
+    improvement_cost: Money = Field(default=Decimal("0"), ge=0)
     transfer_expenses: Money = Field(default=0, ge=0)
-    gain_or_loss: Money
+    quantity: Optional[Decimal] = Field(default=None, ge=0)
+    is_listed: Optional[bool] = None
+    is_equity_oriented: Optional[bool] = None
+    stt_paid_on_acquisition: Optional[bool] = None
+    stt_paid_on_transfer: Optional[bool] = None
+    grandfathered_fmv_2018: Optional[Money] = Field(default=None, ge=0)
+
+    @model_validator(mode="after")
+    def sale_is_not_before_acquisition(self):
+        if self.acquisition_date and self.sale_date and self.sale_date < self.acquisition_date:
+            raise ValueError("sale_date cannot precede acquisition_date")
+        return self
 
 class BusinessIncome(BaseModel):
     business_name: str = Field(min_length=1, max_length=200)

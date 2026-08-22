@@ -1,5 +1,5 @@
 from decimal import Decimal
-from typing import Literal
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -14,6 +14,38 @@ class TaxCalculationInput(BaseModel):
     regime: Regime
 
 
+class CapitalGainResult(BaseModel):
+    asset_type: str
+    holding_period: Literal["short_term", "long_term"]
+    sale_consideration: Decimal
+    acquisition_cost: Decimal
+    improvement_cost: Decimal
+    transfer_expenses: Decimal
+    computed_gain: Decimal
+    gain_type: Literal["gain", "loss"]
+    applicable_section: Literal["111A", "112", "112A", "slab"]
+    special_rate: Optional[Decimal] = None
+    taxable_gain: Decimal = Field(ge=0)
+    tax: Decimal = Field(ge=0)
+    loss_setoff: Decimal = Field(ge=0)
+    carry_forward: Decimal = Field(ge=0)
+
+
+class CapitalGainsSummary(BaseModel):
+    transactions: list[CapitalGainResult] = Field(default_factory=list)
+    short_term_capital_gain: Decimal = Field(ge=0)
+    long_term_capital_gain: Decimal = Field(ge=0)
+    short_term_capital_loss: Decimal = Field(ge=0)
+    long_term_capital_loss: Decimal = Field(ge=0)
+    current_year_capital_gain_after_setoff: Decimal = Field(ge=0)
+    capital_loss_carry_forward: Decimal = Field(ge=0)
+    ordinary_short_term_capital_gain: Decimal = Field(ge=0)
+    special_rate_capital_gain: Decimal = Field(ge=0)
+    special_rate_tax: Decimal = Field(ge=0)
+    itr1_capital_gain_eligible: bool
+    itr1_capital_gain_reason: str
+
+
 class TaxCalculationResult(BaseModel):
     income_from_salary: Decimal
     income_from_pension: Decimal
@@ -22,6 +54,9 @@ class TaxCalculationResult(BaseModel):
     house_property_loss_set_off: Decimal
     house_property_loss_carried_forward: Decimal
     other_sources_income: Decimal
+    capital_gains: CapitalGainsSummary
+    ordinary_taxable_income: Decimal
+    capital_gains_tax: Decimal
     assessment_year: str
     gross_total_income: Decimal
     total_deductions: Decimal
