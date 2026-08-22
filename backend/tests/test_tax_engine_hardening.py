@@ -33,7 +33,7 @@ def test_age_categories_are_explicit_and_residential_status_matters():
 
 
 def test_house_property_types_loss_and_coownership():
-    self_occupied = profile(house_properties=[{"property_type": "self_occupied", "city": "Pune", "home_loan_interest": 100000}])
+    self_occupied = profile(house_properties=[{"property_type": "self_occupied", "city": "Pune", "home_loan_interest": 100000, "loan_purpose": "purchase_or_construction", "loan_sanction_date": "2020-01-01", "construction_completed_within_five_years": True}])
     let_out = profile(house_properties=[{"property_type": "let_out", "city": "Pune", "annual_rent": 240000, "municipal_tax": 20000}])
     coowned = profile(house_properties=[{"property_type": "deemed_let_out", "city": "Pune", "annual_rent": 240000, "municipal_tax": 20000, "ownership_share": 50}])
     assert calculate_house_property(self_occupied) == Decimal("-100000")
@@ -42,13 +42,13 @@ def test_house_property_types_loss_and_coownership():
 
 
 def test_house_property_loss_setoff_is_separate_and_limited():
-    data = profile(salary_income=[{"employer_name": "E", "gross_salary": 1000000}], house_properties=[{"property_type": "self_occupied", "city": "Pune", "home_loan_interest": 300000}])
+    data = profile(salary_income=[{"employer_name": "E", "gross_salary": 1000000}], house_properties=[{"property_type": "self_occupied", "city": "Pune", "home_loan_interest": 300000, "loan_purpose": "purchase_or_construction", "loan_sanction_date": "2020-01-01", "construction_completed_within_five_years": True}])
     old = calculate_income(data, "old")
     new = calculate_income(data, "new")
-    assert old.house_property == Decimal("-300000")
+    assert old.house_property == Decimal("-200000")
     assert old.house_property_loss_set_off == Decimal("200000")
     assert new.house_property_loss_set_off == 0
-    assert calculate_tax(data, "old").gross_total_income == Decimal("900000")
+    assert calculate_tax(data, "old").gross_total_income == Decimal("800000")
 
 
 def test_deduction_caps_and_regime_restrictions():

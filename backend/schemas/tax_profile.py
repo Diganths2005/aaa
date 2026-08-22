@@ -26,6 +26,9 @@ class HouseProperty(BaseModel):
     municipal_tax: Money = Field(default=0, ge=0)
     home_loan_interest: Money = Field(default=0, ge=0)
     ownership_share: Decimal = Field(default=Decimal("100"), ge=0, le=100)
+    loan_purpose: Optional[Literal["purchase_or_construction", "repair"]] = None
+    loan_sanction_date: Optional[str] = None
+    construction_completed_within_five_years: Optional[bool] = None
 
 class OtherIncome(BaseModel):
     income_type: Literal["interest", "dividend", "family_pension", "other"]
@@ -87,6 +90,15 @@ class Deduction(BaseModel):
     first_home_owner: Optional[bool] = None
     property_stamp_duty_value: Money = Field(default=Decimal("0"), ge=0)
     loan_amount: Money = Field(default=Decimal("0"), ge=0)
+    dependent_relationship: Optional[Literal["spouse", "child", "parent", "sibling"]] = None
+    dependent_age_category: Optional[Literal["individual", "senior", "super_senior"]] = None
+    disability_certificate_available: Optional[bool] = None
+    donation_mode: Optional[Literal["cash", "non_cash"]] = None
+    donation_eligible: Optional[bool] = None
+    form_10ba_acknowledgement: Optional[str] = None
+    owns_residential_property_at_residence_or_work: Optional[bool] = None
+    loan_from_financial_institution: Optional[bool] = None
+    section_24b_limit_exhausted: Optional[bool] = None
 
 class TaxPayment(BaseModel):
     tax_type: Literal["tds", "advance_tax", "self_assessment"]
