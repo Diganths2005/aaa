@@ -39,6 +39,19 @@ Document upload is never required for TaxWise, Tax Engine, or ITR workflows. The
 
 See [DOCUMENT_INTELLIGENCE.md](DOCUMENT_INTELLIGENCE.md) for the data model, security model, and service contracts.
 
+## Conversational Onboarding
+
+- [x] Deterministic question/state engine
+- [x] Context-aware salary, yes/no, PAN, date, and employment answers
+- [x] Conditional branch skipping and structured progress
+- [x] Persisted authenticated onboarding session and resume
+- [x] Candidate confirmation before profile writes
+- [x] Shared assistant/profile synchronization
+- [ ] Full bank-account conversational subflow
+- [ ] Provider-backed natural-language understanding
+
+See [CONVERSATIONAL_ONBOARDING.md](CONVERSATIONAL_ONBOARDING.md) for state, validation, synchronization, and API details.
+
 ---
 
 ## Phase 2: Tax Engine (Week 3-4)

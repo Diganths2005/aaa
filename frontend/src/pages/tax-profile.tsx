@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/auth';
-import { documentsAPI, taxProfileAPI } from '@/lib/api';
+import { documentsAPI, onboardingAPI, taxProfileAPI } from '@/lib/api';
 import { TaxProfile } from '@/types';
 
 const inputClass = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm';
@@ -22,13 +22,23 @@ const TaxProfilePage: React.FC = () => {
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
   const [assistantInput, setAssistantInput] = useState('');
-  const [assistantMessages, setAssistantMessages] = useState<string[]>(['Hi, I can help fill this profile. Try telling me your salary, such as “My salary is 8.4 lakh.”']);
+  const [assistantMessages, setAssistantMessages] = useState<string[]>([]);
   const [proposal, setProposal] = useState<{ salary?: number; tds?: number } | null>(null);
+  const [progress, setProgress] = useState({ completed: 0, total: 16, percent: 0 });
   const hydrated = useRef(false);
 
   useEffect(() => { if (!isAuthenticated) router.push('/login'); }, [isAuthenticated, router]);
   useEffect(() => {
     if (!isAuthenticated) return;
+    onboardingAPI.getSession().then((response) => {
+      setAssistantMessages([response.data.assistant_message]);
+      setProgress(response.data.progress);
+      if (response.data.profile) {
+        setFormData({ ...blankProfile, ...response.data.profile });
+        hydrated.current = true;
+      }
+    }).catch(() => setAssistantMessages(['Hi! I\'ll help you complete your Tax Profile.']))
+      .finally(() => { hydrated.current = true; });
     taxProfileAPI.getCurrentUser().then((response) => {
       setFormData({ ...blankProfile, ...response.data });
       hydrated.current = true;
@@ -80,41 +90,39 @@ const TaxProfilePage: React.FC = () => {
     finally { setSaving(false); }
   };
   const saveAssistantMessage = (message: string) => setAssistantMessages((current) => [...current, message]);
-  const parseAmount = (value: string) => {
-    const amount = Number(value.replace(/,/g, ''));
-    return Number.isFinite(amount) ? amount : null;
-  };
-  const sendAssistantMessage = () => {
+  const sendAssistantMessage = async () => {
     const question = assistantInput.trim();
     if (!question) return;
     saveAssistantMessage(`You: ${question}`);
     setAssistantInput('');
-    const salaryMatch = question.match(/salary[^\d]*(\d+(?:\.\d+)?)\s*(lakh|lac|l|k)?/i);
-    const tdsMatch = question.match(/tds[^\d]*(\d[\d,]*(?:\.\d+)?)/i);
-    const salary = salaryMatch ? parseAmount(salaryMatch[1] || '') : null;
-    const salaryAmount = salary === null ? null : /lakh|lac/i.test(salaryMatch?.[2] || '') ? salary * 100000 : /k/i.test(salaryMatch?.[2] || '') ? salary * 1000 : salary;
-    const tds = tdsMatch ? parseAmount(tdsMatch[1] || '') : null;
-    if (salaryAmount !== null || tds !== null) {
-      setProposal({ salary: salaryAmount ?? undefined, tds: tds ?? undefined });
-      saveAssistantMessage(`I found ${salaryAmount !== null ? `salary ₹${salaryAmount.toLocaleString('en-IN')}` : ''}${salaryAmount !== null && tds !== null ? ' and ' : ''}${tds !== null ? `TDS ₹${tds.toLocaleString('en-IN')}` : ''}. Please confirm before I add it to the profile.`);
-    } else {
-      saveAssistantMessage('I can currently help with salary and TDS values. The tax engine remains the source of truth for calculations.');
+    try {
+      const response = await onboardingAPI.sendMessage(question);
+      setAssistantMessages((current) => [...current, response.data.assistant_message]);
+      setProgress(response.data.progress);
+      if (response.data.requires_confirmation) {
+        const values = response.data.candidate_values;
+        setProposal({ salary: values.salary_income?.[0]?.gross_salary ?? undefined, tds: values.salary_tds ?? undefined });
+      }
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'The assistant could not process that answer.');
     }
   };
   const confirmProposal = async () => {
-    const currentSalary = formData.salary_income[0] || { employer_name: '', gross_salary: 0, standard_deduction: 0, professional_tax: 0, tds: 0 };
-    const nextSalary = { ...currentSalary, ...(proposal?.salary !== undefined ? { gross_salary: proposal.salary } : {}), ...(proposal?.tds !== undefined ? { tds: proposal.tds } : {}) };
-    const nextProfile = { ...formData, salary_income: [nextSalary, ...formData.salary_income.slice(1)] };
-    setFormData(nextProfile);
     try {
-      const response = nextProfile.id ? await taxProfileAPI.update(nextProfile.id, nextProfile) : await taxProfileAPI.create(nextProfile);
-      setFormData({ ...blankProfile, ...response.data });
+      const response = await onboardingAPI.confirm('confirm');
+      setAssistantMessages((current) => [...current, response.data.assistant_message]);
+      setProgress(response.data.progress);
+      if (response.data.profile) setFormData({ ...blankProfile, ...response.data.profile });
     } catch (err: any) {
       setError(err.response?.data?.detail || 'Could not save the proposed profile update.');
       return;
     }
-    saveAssistantMessage('Confirmed. The editable Salary fields on the left now show the proposed values.');
     setProposal(null);
+  };
+  const rejectProposal = async () => {
+    await onboardingAPI.confirm('reject');
+    setProposal(null);
+    saveAssistantMessage('No changes made. Let\'s continue with the next question.');
   };
   const steps = ['About you', 'Residence & return', 'Income sources', 'Deductions', 'Taxes & banks', 'Documents'];
   const returnFlags: [string, string][] = [['is_senior_citizen','Senior citizen'],['is_director','Company director'],['has_unlisted_equity','Unlisted shares'],['has_business_income','Business or professional income'],['has_speculative_income','Speculative income'],['has_carry_forward_loss','Loss to carry forward']];
@@ -133,7 +141,7 @@ const TaxProfilePage: React.FC = () => {
     }
   };
 
-  return <div className="min-h-screen bg-gray-100 px-4 py-6 lg:px-6"><div className="mx-auto max-w-7xl"><header className="mb-6"><p className="text-sm font-semibold uppercase tracking-wide text-primary">TaxWise profile workspace</p><h1 className="mt-2 text-3xl font-bold text-gray-900">Your AY 2026-27 tax profile</h1><p className="mt-2 text-gray-600">Edit your profile on the left or use the assistant on the right. Both panels use the same saved profile.</p></header><div className="grid items-start gap-6 lg:grid-cols-[1.22fr_1fr]"><section className="min-w-0 lg:max-h-[calc(100vh-150px)] lg:overflow-y-auto lg:pr-2"><div className="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">{steps.map((name, index) => <button type="button" key={name} onClick={() => setStep(index + 1)} className={`border-b-4 px-1 py-2 text-xs ${step === index + 1 ? 'border-primary font-semibold text-primary' : 'border-gray-300 text-gray-500'}`}>{index + 1}. {name}</button>)}</div><form onSubmit={submit} className="space-y-6 rounded-lg bg-white p-6 shadow">
+  return <div className="min-h-screen bg-gray-100 px-4 py-6 lg:px-6"><div className="mx-auto max-w-7xl"><header className="mb-6"><p className="text-sm font-semibold uppercase tracking-wide text-primary">TaxWise profile workspace</p><h1 className="mt-2 text-3xl font-bold text-gray-900">Your AY 2026-27 tax profile</h1><p className="mt-2 text-gray-600">Edit your profile on the left or use the assistant on the right. Both panels use the same saved profile.</p><div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-200"><div className="h-full bg-primary transition-all" style={{ width: `${progress.percent}%` }} /></div><p className="mt-1 text-xs text-gray-500">{progress.completed} of {progress.total} sections completed</p></header><div className="grid items-start gap-6 lg:grid-cols-[1.22fr_1fr]"><section className="min-w-0 lg:max-h-[calc(100vh-150px)] lg:overflow-y-auto lg:pr-2"><div className="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">{steps.map((name, index) => <button type="button" key={name} onClick={() => setStep(index + 1)} className={`border-b-4 px-1 py-2 text-xs ${step === index + 1 ? 'border-primary font-semibold text-primary' : 'border-gray-300 text-gray-500'}`}>{index + 1}. {name}</button>)}</div><form onSubmit={submit} className="space-y-6 rounded-lg bg-white p-6 shadow">
     {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {step === 1 && <div className="space-y-4"><h2 className="text-xl font-semibold">About you</h2><div className="grid gap-4 sm:grid-cols-2">{field('date_of_birth', 'Date of birth', 'date')}{field('pan_number', 'PAN (10 characters)')}{field('citizenship', 'Citizenship')}{field('nationality', 'Nationality')}{field('pincode', 'PIN code')}{field('city', 'City')}</div>{field('address', 'Residential address')}<div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Gender<select className={inputClass} name="gender" value={formData.gender || ''} onChange={update}><option value="">Choose</option><option>male</option><option>female</option><option>other</option></select></label><label className="text-sm text-gray-700">Marital status<select className={inputClass} name="marital_status" value={formData.marital_status || ''} onChange={update}><option value="">Choose</option><option>single</option><option>married</option><option>divorced</option><option>widowed</option></select></label></div></div>}
     {step === 2 && <div className="space-y-4"><h2 className="text-xl font-semibold">Residence and return details</h2><p className="text-sm text-gray-600">These answers help the future return selector understand your situation. They do not select an ITR yet.</p><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Residential status<select className={inputClass} name="residential_status" value={formData.residential_status} onChange={update}><option value="resident">Resident</option><option value="non_resident">Non-resident</option><option value="nri">NRI</option></select></label><label className="text-sm text-gray-700">Work situation<select className={inputClass} name="employment_type" value={formData.employment_type} onChange={update}><option value="salaried">Salaried</option><option value="self_employed">Self-employed</option><option value="both">Both</option><option value="none">Not working</option></select></label>{field('employer_name', 'Employer or organisation')}{field('assessment_year', 'Assessment year')}</div><div className="grid gap-3 sm:grid-cols-2">{returnFlags.map(([name, label]) => <label key={name} className="flex gap-2 text-sm"><input type="checkbox" name={name} checked={(formData as any)[name]} onChange={update} />{label}</label>)}</div></div>}

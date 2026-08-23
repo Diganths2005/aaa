@@ -1,0 +1,59 @@
+import os
+import uuid
+from decimal import Decimal
+
+os.environ["DATABASE_URL"] = "sqlite:///./tax-api-test.db"
+os.environ["SECRET_KEY"] = "test-secret"
+
+from fastapi.testclient import TestClient
+
+from main import app
+
+
+client = TestClient(app)
+
+
+def authenticated_client():
+    email = f"onboarding-{uuid.uuid4()}@example.com"
+    response = client.post("/api/v1/auth/signup", json={"email": email, "first_name": "Test", "last_name": "User", "password": "password123"})
+    token = response.json()["access_token"]
+    return {"Authorization": f"Bearer {token}"}
+
+
+def test_session_message_and_confirmation_updates_profile():
+    headers = authenticated_client()
+    session = client.post("/api/v1/onboarding/session", headers=headers)
+    assert session.status_code == 200
+    assert session.json()["current_field"] == "name"
+
+    # Move through required personal questions to reach salary.
+    for answer in ("Test User", "ABCDE1234F", "1990-01-01", "resident", "salaried", "Acme"):
+        answer = "ABCDE" + str(uuid.uuid4().int)[0:4] + "F" if answer == "ABCDE1234F" else answer
+        response = client.post("/api/v1/onboarding/message", headers=headers, json={"message": answer})
+        assert response.status_code == 200
+        if response.json()["requires_confirmation"]:
+            confirmed = client.post("/api/v1/onboarding/confirm", headers=headers, json={"action": "confirm"})
+            assert confirmed.status_code == 200
+
+    response = client.post("/api/v1/onboarding/message", headers=headers, json={"message": "6.5 lakh"})
+    assert response.status_code == 200
+    assert response.json()["candidate_values"]["salary_income"][0]["gross_salary"] == 650000
+    assert response.json()["requires_confirmation"] is True
+
+    confirmed = client.post("/api/v1/onboarding/confirm", headers=headers, json={"action": "confirm"})
+    assert confirmed.status_code == 200
+    assert Decimal(confirmed.json()["profile"]["salary_income"][0]["gross_salary"]) == Decimal("650000")
+
+
+def test_onboarding_reject_does_not_create_profile_from_candidate():
+    headers = authenticated_client()
+    client.post("/api/v1/onboarding/session", headers=headers)
+    for answer in ("Test User", "ABCDE" + str(uuid.uuid4().int)[0:4] + "F", "1990-01-01", "resident", "salaried", "Acme", "6 lakh"):
+        response = client.post("/api/v1/onboarding/message", headers=headers, json={"message": answer})
+        if response.json().get("requires_confirmation"):
+            if answer == "6 lakh":
+                break
+            client.post("/api/v1/onboarding/confirm", headers=headers, json={"action": "confirm"})
+    rejected = client.post("/api/v1/onboarding/confirm", headers=headers, json={"action": "reject"})
+    assert rejected.status_code == 200
+    assert rejected.json()["profile"]["salary_income"] == []

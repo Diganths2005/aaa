@@ -75,4 +75,13 @@ export const documentsAPI = {
   delete: (documentId: string) => apiClient.delete(`${API_V1_URL}/documents/${documentId}`),
 };
 
+export const onboardingAPI = {
+  start: () => apiClient.post(`${API_V1_URL}/onboarding/session`),
+  getSession: () => apiClient.get(`${API_V1_URL}/onboarding/session`),
+  sendMessage: (message: string) => apiClient.post(`${API_V1_URL}/onboarding/message`, { message }),
+  confirm: (action: 'confirm' | 'reject') => apiClient.post(`${API_V1_URL}/onboarding/confirm`, { action }),
+  progress: () => apiClient.get(`${API_V1_URL}/onboarding/progress`),
+  documentCandidate: (candidateValues: Record<string, unknown>) => apiClient.post(`${API_V1_URL}/onboarding/document-candidate`, { candidate_values: candidateValues }),
+};
+
 export default apiClient;
