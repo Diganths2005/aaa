@@ -1,7 +1,7 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/auth';
-import { taxProfileAPI } from '@/lib/api';
+import { documentsAPI, taxProfileAPI } from '@/lib/api';
 import { TaxProfile } from '@/types';
 
 const inputClass = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm';
@@ -21,8 +21,26 @@ const TaxProfilePage: React.FC = () => {
   const [files, setFiles] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [assistantInput, setAssistantInput] = useState('');
+  const [assistantMessages, setAssistantMessages] = useState<string[]>(['Hi, I can help fill this profile. Try telling me your salary, such as “My salary is 8.4 lakh.”']);
+  const [proposal, setProposal] = useState<{ salary?: number; tds?: number } | null>(null);
+  const hydrated = useRef(false);
 
   useEffect(() => { if (!isAuthenticated) router.push('/login'); }, [isAuthenticated, router]);
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    taxProfileAPI.getCurrentUser().then((response) => {
+      setFormData({ ...blankProfile, ...response.data });
+      hydrated.current = true;
+    }).catch(() => { hydrated.current = true; });
+  }, [isAuthenticated]);
+  useEffect(() => {
+    if (!hydrated.current || !formData.id) return;
+    const timer = window.setTimeout(() => {
+      taxProfileAPI.update(formData.id as string, formData).catch(() => setError('Your latest change could not be saved.'));
+    }, 500);
+    return () => window.clearTimeout(timer);
+  }, [formData]);
   if (!isAuthenticated) return null;
 
   const update = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
@@ -52,16 +70,70 @@ const TaxProfilePage: React.FC = () => {
   };
   const submit = async (event: React.FormEvent) => {
     event.preventDefault(); setSaving(true); setError('');
-    try { await taxProfileAPI.create(formData); router.push('/dashboard'); }
+    try {
+      const response = formData.id ? await taxProfileAPI.update(formData.id, formData) : await taxProfileAPI.create(formData);
+      setFormData({ ...blankProfile, ...response.data });
+      hydrated.current = true;
+      setAssistantMessages((current) => [...current, 'Your profile is saved. You can keep editing it here.']);
+    }
     catch (err: any) { setError(err.response?.data?.detail || 'Could not save your tax profile.'); }
     finally { setSaving(false); }
+  };
+  const saveAssistantMessage = (message: string) => setAssistantMessages((current) => [...current, message]);
+  const parseAmount = (value: string) => {
+    const amount = Number(value.replace(/,/g, ''));
+    return Number.isFinite(amount) ? amount : null;
+  };
+  const sendAssistantMessage = () => {
+    const question = assistantInput.trim();
+    if (!question) return;
+    saveAssistantMessage(`You: ${question}`);
+    setAssistantInput('');
+    const salaryMatch = question.match(/salary[^\d]*(\d+(?:\.\d+)?)\s*(lakh|lac|l|k)?/i);
+    const tdsMatch = question.match(/tds[^\d]*(\d[\d,]*(?:\.\d+)?)/i);
+    const salary = salaryMatch ? parseAmount(salaryMatch[1] || '') : null;
+    const salaryAmount = salary === null ? null : /lakh|lac/i.test(salaryMatch?.[2] || '') ? salary * 100000 : /k/i.test(salaryMatch?.[2] || '') ? salary * 1000 : salary;
+    const tds = tdsMatch ? parseAmount(tdsMatch[1] || '') : null;
+    if (salaryAmount !== null || tds !== null) {
+      setProposal({ salary: salaryAmount ?? undefined, tds: tds ?? undefined });
+      saveAssistantMessage(`I found ${salaryAmount !== null ? `salary ₹${salaryAmount.toLocaleString('en-IN')}` : ''}${salaryAmount !== null && tds !== null ? ' and ' : ''}${tds !== null ? `TDS ₹${tds.toLocaleString('en-IN')}` : ''}. Please confirm before I add it to the profile.`);
+    } else {
+      saveAssistantMessage('I can currently help with salary and TDS values. The tax engine remains the source of truth for calculations.');
+    }
+  };
+  const confirmProposal = async () => {
+    const currentSalary = formData.salary_income[0] || { employer_name: '', gross_salary: 0, standard_deduction: 0, professional_tax: 0, tds: 0 };
+    const nextSalary = { ...currentSalary, ...(proposal?.salary !== undefined ? { gross_salary: proposal.salary } : {}), ...(proposal?.tds !== undefined ? { tds: proposal.tds } : {}) };
+    const nextProfile = { ...formData, salary_income: [nextSalary, ...formData.salary_income.slice(1)] };
+    setFormData(nextProfile);
+    try {
+      const response = nextProfile.id ? await taxProfileAPI.update(nextProfile.id, nextProfile) : await taxProfileAPI.create(nextProfile);
+      setFormData({ ...blankProfile, ...response.data });
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Could not save the proposed profile update.');
+      return;
+    }
+    saveAssistantMessage('Confirmed. The editable Salary fields on the left now show the proposed values.');
+    setProposal(null);
   };
   const steps = ['About you', 'Residence & return', 'Income sources', 'Deductions', 'Taxes & banks', 'Documents'];
   const returnFlags: [string, string][] = [['is_senior_citizen','Senior citizen'],['is_director','Company director'],['has_unlisted_equity','Unlisted shares'],['has_business_income','Business or professional income'],['has_speculative_income','Speculative income'],['has_carry_forward_loss','Loss to carry forward']];
   const field = (name: string, label: string, type = 'text') => <label className="block text-sm text-gray-700">{label}<input className={inputClass} name={name} type={type} value={(formData as any)[name] ?? ''} onChange={update} /></label>;
   const listEditor = (key: keyof TaxProfile, title: string, addLabel: string, onAdd: () => void, fields: { name: string; label: string; type?: string }[]) => <section className="space-y-3"><div className="flex items-center justify-between"><h3 className="font-semibold text-gray-900">{title}</h3><button type="button" onClick={onAdd} className="text-sm font-medium text-primary">+ {addLabel}</button></div>{(formData[key] as any[]).map((entry, index) => <div key={index} className="rounded-md border border-gray-200 p-4"><div className="grid gap-3 sm:grid-cols-2">{fields.map((item) => item.type === 'checkbox' ? <label key={item.name} className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={Boolean(entry[item.name])} onChange={(event) => updateEntry(key, index, item.name, event.target.checked)} />{item.label}</label> : <label key={item.name} className="text-sm text-gray-700">{item.label}<input className={inputClass} type={item.type || 'text'} value={entry[item.name] ?? ''} onChange={(event) => updateEntry(key, index, item.name, item.type === 'number' ? Number(event.target.value) : event.target.value)} /></label>)}</div><button type="button" onClick={() => remove(key, index)} className="mt-3 text-xs text-red-600">Remove</button></div>)}</section>;
 
-  return <div className="min-h-screen bg-gray-100 px-4 py-10"><div className="mx-auto max-w-4xl"><header className="mb-8"><p className="text-sm font-semibold uppercase tracking-wide text-primary">TaxWise profile</p><h1 className="mt-2 text-3xl font-bold text-gray-900">Your AY 2026-27 tax profile</h1><p className="mt-2 text-gray-600">This information prepares your profile for ITR-1 through ITR-4. You can review it before filing.</p></header><div className="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">{steps.map((name, index) => <button type="button" key={name} onClick={() => setStep(index + 1)} className={`border-b-4 px-1 py-2 text-xs ${step === index + 1 ? 'border-primary font-semibold text-primary' : 'border-gray-300 text-gray-500'}`}>{index + 1}. {name}</button>)}</div><form onSubmit={submit} className="space-y-6 rounded-lg bg-white p-6 shadow">
+  const handleAssistantPdf = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    try {
+      await documentsAPI.register('other', file.name, formData.assessment_year);
+      saveAssistantMessage(`PDF registered: ${file.name}. Extraction and OCR will propose values once the processing service is connected.`);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Could not register this document.');
+    }
+  };
+
+  return <div className="min-h-screen bg-gray-100 px-4 py-6 lg:px-6"><div className="mx-auto max-w-7xl"><header className="mb-6"><p className="text-sm font-semibold uppercase tracking-wide text-primary">TaxWise profile workspace</p><h1 className="mt-2 text-3xl font-bold text-gray-900">Your AY 2026-27 tax profile</h1><p className="mt-2 text-gray-600">Edit your profile on the left or use the assistant on the right. Both panels use the same saved profile.</p></header><div className="grid items-start gap-6 lg:grid-cols-[1.22fr_1fr]"><section className="min-w-0 lg:max-h-[calc(100vh-150px)] lg:overflow-y-auto lg:pr-2"><div className="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">{steps.map((name, index) => <button type="button" key={name} onClick={() => setStep(index + 1)} className={`border-b-4 px-1 py-2 text-xs ${step === index + 1 ? 'border-primary font-semibold text-primary' : 'border-gray-300 text-gray-500'}`}>{index + 1}. {name}</button>)}</div><form onSubmit={submit} className="space-y-6 rounded-lg bg-white p-6 shadow">
     {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {step === 1 && <div className="space-y-4"><h2 className="text-xl font-semibold">About you</h2><div className="grid gap-4 sm:grid-cols-2">{field('date_of_birth', 'Date of birth', 'date')}{field('pan_number', 'PAN (10 characters)')}{field('citizenship', 'Citizenship')}{field('nationality', 'Nationality')}{field('pincode', 'PIN code')}{field('city', 'City')}</div>{field('address', 'Residential address')}<div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Gender<select className={inputClass} name="gender" value={formData.gender || ''} onChange={update}><option value="">Choose</option><option>male</option><option>female</option><option>other</option></select></label><label className="text-sm text-gray-700">Marital status<select className={inputClass} name="marital_status" value={formData.marital_status || ''} onChange={update}><option value="">Choose</option><option>single</option><option>married</option><option>divorced</option><option>widowed</option></select></label></div></div>}
     {step === 2 && <div className="space-y-4"><h2 className="text-xl font-semibold">Residence and return details</h2><p className="text-sm text-gray-600">These answers help the future return selector understand your situation. They do not select an ITR yet.</p><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Residential status<select className={inputClass} name="residential_status" value={formData.residential_status} onChange={update}><option value="resident">Resident</option><option value="non_resident">Non-resident</option><option value="nri">NRI</option></select></label><label className="text-sm text-gray-700">Work situation<select className={inputClass} name="employment_type" value={formData.employment_type} onChange={update}><option value="salaried">Salaried</option><option value="self_employed">Self-employed</option><option value="both">Both</option><option value="none">Not working</option></select></label>{field('employer_name', 'Employer or organisation')}{field('assessment_year', 'Assessment year')}</div><div className="grid gap-3 sm:grid-cols-2">{returnFlags.map(([name, label]) => <label key={name} className="flex gap-2 text-sm"><input type="checkbox" name={name} checked={(formData as any)[name]} onChange={update} />{label}</label>)}</div></div>}
@@ -70,6 +142,6 @@ const TaxProfilePage: React.FC = () => {
     {step === 5 && <div className="space-y-6"><h2 className="text-xl font-semibold">Taxes paid and bank accounts</h2><p className="text-sm text-gray-600">Bank details are used for refund processing. Account numbers are masked in API responses.</p>{listEditor('taxes_paid','TDS, advance tax and self-assessment tax','tax payment',addTax,[{name:'tax_type',label:'Payment type'},{name:'amount',label:'Amount',type:'number'},{name:'reference',label:'Challan or reference'}])}{listEditor('bank_accounts','Bank accounts','account',addBank,[{name:'bank_name',label:'Bank name'},{name:'account_number',label:'Account number'},{name:'ifsc_code',label:'IFSC code'}])}</div>}
     {step === 6 && <div className="space-y-4"><h2 className="text-xl font-semibold">Your documents</h2><p className="text-sm text-gray-600">Upload documents voluntarily from your device. TaxWise does not fetch documents from the Income Tax Department or your bank.</p><input type="file" multiple accept=".pdf,.jpg,.jpeg,.png" onChange={handleFiles} className="block w-full text-sm" />{files.length > 0 && <ul className="list-disc pl-5 text-sm text-gray-700">{files.map((file, index) => <li key={`${file}-${index}`}>{file}</li>)}</ul>}</div>}
     <div className="flex justify-between border-t pt-6"><button type="button" disabled={step === 1} onClick={() => setStep(step - 1)} className="rounded-md border px-4 py-2 text-sm disabled:opacity-40">Previous</button>{step < 6 ? <button type="button" onClick={() => setStep(step + 1)} className="rounded-md bg-primary px-4 py-2 text-sm text-white">Next</button> : <button type="submit" disabled={saving} className="rounded-md bg-primary px-4 py-2 text-sm text-white disabled:opacity-50">{saving ? 'Saving...' : 'Save profile'}</button>}</div>
-  </form></div></div>;
+  </form></section><aside className="flex min-h-[520px] flex-col rounded-lg bg-slate-900 p-5 text-white shadow lg:sticky lg:top-6 lg:max-h-[calc(100vh-48px)]"><div className="border-b border-slate-700 pb-4"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">TaxWise assistant</p><h2 className="mt-2 text-2xl font-semibold">Let’s fill this together</h2><p className="mt-2 text-sm text-slate-300">I can propose profile updates for your review. I do not calculate tax.</p></div><div className="flex-1 space-y-3 overflow-y-auto py-5" aria-live="polite">{assistantMessages.map((message, index) => <p key={`${message}-${index}`} className={`max-w-[92%] rounded-lg px-3 py-2 text-sm ${message.startsWith('You:') ? 'ml-auto bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>{message}</p>)}{proposal && <div className="rounded-lg border border-cyan-400/50 bg-slate-800 p-4 text-sm"><p className="font-semibold text-cyan-300">Proposed profile update</p>{proposal.salary !== undefined && <p className="mt-2">Salary: ₹{proposal.salary.toLocaleString('en-IN')}</p>}{proposal.tds !== undefined && <p>TDS: ₹{proposal.tds.toLocaleString('en-IN')}</p>}<div className="mt-4 flex gap-2"><button type="button" onClick={confirmProposal} className="rounded-md bg-cyan-400 px-3 py-2 font-medium text-slate-950">Add to profile</button><button type="button" onClick={() => setProposal(null)} className="rounded-md border border-slate-500 px-3 py-2">Review first</button></div></div>}</div><div className="border-t border-slate-700 pt-4"><div className="flex gap-2"><input value={assistantInput} onChange={(event) => setAssistantInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') sendAssistantMessage(); }} placeholder="Tell me about your income..." className="min-w-0 flex-1 rounded-md border-0 bg-white px-3 py-2 text-sm text-slate-900" /><button type="button" onClick={sendAssistantMessage} className="rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950">Send</button></div><label className="mt-3 block text-xs text-slate-400">Have a tax document? <input type="file" accept="application/pdf" className="mt-1 block w-full text-xs text-slate-300" onChange={handleAssistantPdf} /></label></div></aside></div></div></div>;
 };
 export default TaxProfilePage;
