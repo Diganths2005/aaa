@@ -222,21 +222,49 @@ Update an existing tax profile.
 }
 ```
 
-### Upload Document
+### Legacy Profile Document Route
 **POST** `/tax-profiles/{profile_id}/documents`
 
-Upload supporting documents for tax profile.
+This legacy route is retired and returns `410 Gone`. Use the optional `/documents` endpoints below. Document intake is deliberately separate from the tax profile.
 
 **Parameters:**
 - `profile_id` (path): UUID of the tax profile
 - `file` (form-data): File to upload (PDF, JPG, PNG, max 10MB)
 
-**Response:** `200 OK`
+**Response:** `410 Gone`
 ```json
 {
-  "message": "Document uploaded successfully"
+  "detail": "Document intake is available through the optional /documents endpoint"
 }
 ```
+
+## Optional Document Intelligence
+
+Document upload is optional. The existing profile, tax calculation, and ITR flows do not depend on these endpoints.
+
+### Register Optional Document
+**POST** `/documents`
+
+Register document metadata for the authenticated user. The current architecture returns `202 Accepted` with `pending` status; binary storage and processing adapters are planned separately.
+
+**Request:**
+```json
+{
+  "document_type": "form_16",
+  "original_filename": "form-16.pdf",
+  "assessment_year": "2026-27"
+}
+```
+
+### List My Documents
+**GET** `/documents`
+
+Returns only documents owned by the authenticated user. Future responses will include processing status, page count, and source metadata.
+
+### Delete My Document
+**DELETE** `/documents/{document_id}`
+
+Deletes only a document owned by the authenticated user. Storage, chunks, and embeddings must be removed by the future storage adapter as one deletion operation.
 
 ### Delete Tax Profile
 **DELETE** `/tax-profiles/{profile_id}`

@@ -108,9 +108,6 @@ def upload_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db)
 ):
-    """
-    Document upload endpoint - to be fully implemented later
-    """
     profile = db.query(TaxProfile).filter(
         TaxProfile.id == profile_id,
         TaxProfile.user_id == current_user.id
@@ -121,8 +118,11 @@ def upload_document(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Tax profile not found"
         )
-    
-    return {"message": "Document uploaded successfully"}
+
+    raise HTTPException(
+        status_code=status.HTTP_410_GONE,
+        detail="Document intake is available through the optional /documents endpoint",
+    )
 
 @router.delete("/{profile_id}")
 def delete_tax_profile(

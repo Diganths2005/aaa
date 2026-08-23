@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS, PROJECT_NAME, PROJECT_VERSION, API_V1_STR
 from database import Base, engine
-from routes import auth, tax_profile, tax
+from routes import auth, documents, tax_profile, tax
 from tax_engine.models import TaxEngineError
 
 # Create tables
@@ -31,6 +31,7 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix=API_V1_STR)
 app.include_router(tax_profile.router, prefix=API_V1_STR)
+app.include_router(documents.router, prefix=API_V1_STR)
 app.include_router(tax.router)
 
 @app.get("/")

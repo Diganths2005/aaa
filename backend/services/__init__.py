@@ -1,0 +1,1 @@
+"""Extension points for document intelligence and retrieval services."""

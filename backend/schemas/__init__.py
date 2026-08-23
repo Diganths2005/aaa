@@ -1,5 +1,6 @@
 from .user import UserCreate, UserLogin, UserResponse
 from .tax_profile import TaxProfileCreate, TaxProfileUpdate, TaxProfileResponse
+from .document import DocumentCreate, DocumentResponse
 
 __all__ = [
     "UserCreate",
@@ -8,4 +9,6 @@ __all__ = [
     "TaxProfileCreate",
     "TaxProfileUpdate",
     "TaxProfileResponse",
+    "DocumentCreate",
+    "DocumentResponse",
 ]

@@ -2,6 +2,7 @@ import axios, { AxiosInstance } from 'axios';
 import Cookies from 'js-cookie';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+const API_V1_URL = `${API_URL}/api/v1`;
 
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_URL,
@@ -33,32 +34,45 @@ apiClient.interceptors.response.use(
 
 export const authAPI = {
   signup: (email: string, firstName: string, lastName: string, password: string) =>
-    apiClient.post('/auth/signup', { email, first_name: firstName, last_name: lastName, password }),
+    apiClient.post(`${API_V1_URL}/auth/signup`, { email, first_name: firstName, last_name: lastName, password }),
   
   login: (email: string, password: string) =>
-    apiClient.post('/auth/login', { email, password }),
+    apiClient.post(`${API_V1_URL}/auth/login`, { email, password }),
   
-  logout: () => apiClient.post('/auth/logout'),
+  logout: () => apiClient.post(`${API_V1_URL}/auth/logout`),
   
-  me: () => apiClient.get('/auth/me'),
+  me: () => apiClient.get(`${API_V1_URL}/auth/me`),
 };
 
 export const taxProfileAPI = {
-  create: (data: any) => apiClient.post('/tax-profiles', data),
+  create: (data: any) => apiClient.post(`${API_V1_URL}/tax-profiles`, data),
   
-  get: (id: string) => apiClient.get(`/tax-profiles/${id}`),
+  get: (id: string) => apiClient.get(`${API_V1_URL}/tax-profiles/${id}`),
   
-  update: (id: string, data: any) => apiClient.put(`/tax-profiles/${id}`, data),
+  update: (id: string, data: any) => apiClient.put(`${API_V1_URL}/tax-profiles/${id}`, data),
   
-  getCurrentUser: () => apiClient.get('/tax-profiles/current'),
+  getCurrentUser: () => apiClient.get(`${API_V1_URL}/tax-profiles/current`),
   
   uploadDocument: (profileId: string, file: File) => {
     const formData = new FormData();
     formData.append('file', file);
-    return apiClient.post(`/tax-profiles/${profileId}/documents`, formData, {
+    return apiClient.post(`${API_V1_URL}/tax-profiles/${profileId}/documents`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
     });
   },
+};
+
+export const documentsAPI = {
+  list: () => apiClient.get(`${API_V1_URL}/documents`),
+
+  register: (documentType: string, originalFilename: string, assessmentYear?: string) =>
+    apiClient.post(`${API_V1_URL}/documents`, {
+      document_type: documentType,
+      original_filename: originalFilename,
+      assessment_year: assessmentYear,
+    }),
+
+  delete: (documentId: string) => apiClient.delete(`${API_V1_URL}/documents/${documentId}`),
 };
 
 export default apiClient;

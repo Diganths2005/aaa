@@ -17,6 +17,30 @@
 
 ---
 
+## Document Intelligence + RAG (Optional, Architecture Added)
+
+Document upload is never required for TaxWise, Tax Engine, or ITR workflows. The current implementation adds isolated document metadata, authenticated ownership checks, and processor/retriever interfaces. It does not add an LLM, OCR provider, vector database, or automatic profile updates.
+
+### Planned stages
+1. [x] Optional PDF upload entry point
+2. [ ] PDF text extraction
+3. [ ] OCR for scanned PDFs
+4. [ ] Document classification
+5. [ ] User confirmation (Confirm, Edit, Reject)
+6. [x] User document metadata and storage boundary
+7. [ ] Official tax knowledge base, versioned by assessment year
+8. [ ] Embeddings
+9. [ ] Vector search
+10. [ ] RAG retrieval with user and assessment-year filters
+11. [ ] AI Copilot
+12. [ ] Source-aware explanations
+13. [ ] Tax-saving recommendations
+14. [ ] What-if tax simulations
+
+See [DOCUMENT_INTELLIGENCE.md](DOCUMENT_INTELLIGENCE.md) for the data model, security model, and service contracts.
+
+---
+
 ## Phase 2: Tax Engine (Week 3-4)
 ### Tax Calculation
 - [ ] Income aggregation service
