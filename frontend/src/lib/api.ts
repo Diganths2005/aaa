@@ -63,6 +63,15 @@ export const taxProfileAPI = {
 };
 
 export const documentsAPI = {
+  upload: (file: File, assessmentYear?: string) => {
+    const formData = new FormData();
+    formData.append('file', file);
+    if (assessmentYear) formData.append('assessment_year', assessmentYear);
+    return apiClient.post(`${API_V1_URL}/documents/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+  },
+
+  process: (documentId: string) => apiClient.post(`${API_V1_URL}/documents/${documentId}/process`),
+
   list: () => apiClient.get(`${API_V1_URL}/documents`),
 
   register: (documentType: string, originalFilename: string, assessmentYear?: string) =>

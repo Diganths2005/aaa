@@ -24,6 +24,8 @@ const TaxProfilePage: React.FC = () => {
   const [assistantInput, setAssistantInput] = useState('');
   const [assistantMessages, setAssistantMessages] = useState<string[]>([]);
   const [proposal, setProposal] = useState<{ salary?: number; tds?: number } | null>(null);
+  const [documentCandidates, setDocumentCandidates] = useState<Array<{ field: string; value: string; page: number }> | null>(null);
+  const [documentProcessing, setDocumentProcessing] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 16, percent: 0 });
   const hydrated = useRef(false);
 
@@ -133,11 +135,48 @@ const TaxProfilePage: React.FC = () => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
+    setDocumentProcessing(true);
     try {
-      await documentsAPI.register('other', file.name, formData.assessment_year);
-      saveAssistantMessage(`PDF registered: ${file.name}. Extraction and OCR will propose values once the processing service is connected.`);
+      saveAssistantMessage(`PDF uploaded: ${file.name}. Processing...`);
+      const uploaded = await documentsAPI.upload(file, formData.assessment_year);
+      const processed = await documentsAPI.process(uploaded.data.id);
+      await onboardingAPI.documentCandidate(processed.data.onboarding_values);
+      const candidateSummary = processed.data.candidates.map((candidate: { field: string; value: string }) => `${candidate.field.replace('deduction_', '')}: ${candidate.value}`).join(' | ');
+      setDocumentCandidates(processed.data.candidates);
+      setProposal({ salary: processed.data.onboarding_values.salary_income?.[0]?.gross_salary, tds: processed.data.onboarding_values.salary_tds });
+      saveAssistantMessage(processed.data.candidates.length ? 'Document processed. I found information for your review.' : 'Document processed, but no supported tax fields were found.');
+      if (candidateSummary) saveAssistantMessage(candidateSummary);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Could not register this document.');
+      const detail = err.response?.data?.detail;
+      saveAssistantMessage(detail === 'DOCUMENT_REQUIRES_OCR' ? 'This PDF appears to be scanned. OCR is not available yet, so you can continue manually.' : 'I couldn\'t extract information from this document. You can continue manually.');
+      setError(detail && detail !== 'DOCUMENT_REQUIRES_OCR' ? detail : '');
+    } finally {
+      setDocumentProcessing(false);
+    }
+  };
+
+  const confirmDocumentCandidates = async () => {
+    if (!documentCandidates) return;
+    const values: Record<string, unknown> = {};
+    const salary = documentCandidates.find((item) => item.field === 'salary_income');
+    const tds = documentCandidates.find((item) => item.field === 'tds');
+    const employer = documentCandidates.find((item) => item.field === 'employer_name');
+    const pan = documentCandidates.find((item) => item.field === 'pan_number');
+    if (salary) values.salary_income = [{ employer_name: employer?.value || 'Document employer', gross_salary: Number(salary.value), standard_deduction: 0, professional_tax: 0, tds: 0 }];
+    if (tds) values.salary_tds = Number(tds.value);
+    if (employer) values.employer_name = employer.value;
+    if (pan) values.pan_number = pan.value;
+    const deductions = documentCandidates.filter((item) => item.field === 'deduction_80C' || item.field === 'deduction_80D').map((item) => ({ section: item.field.replace('deduction_', ''), amount: Number(item.value) }));
+    if (deductions.length) values.deductions = deductions;
+    try {
+      await onboardingAPI.documentCandidate(values);
+      const response = await onboardingAPI.confirm('confirm');
+      if (response.data.profile) setFormData({ ...blankProfile, ...response.data.profile });
+      setProgress(response.data.progress);
+      setAssistantMessages((current) => [...current, "I've filled in the confirmed values from your document. Let's continue with the next missing field."]);
+      setDocumentCandidates(null);
+    } catch (err: any) {
+      setError(err.response?.data?.detail || 'Could not confirm document values.');
     }
   };
 

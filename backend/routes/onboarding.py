@@ -109,7 +109,13 @@ def message(request: OnboardingMessageRequest, current_user: User = Depends(get_
 def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], current_user: User, db: Session) -> TaxProfile:
     profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
     existing = raw_profile_dict(profile)
-    merged = {**existing, **candidate}
+    profile_candidate = deepcopy(candidate)
+    candidate_name = profile_candidate.pop("name", None)
+    if candidate_name:
+        name_parts = candidate_name.split(maxsplit=1)
+        current_user.first_name = name_parts[0]
+        current_user.last_name = name_parts[1] if len(name_parts) > 1 else ""
+    merged = {**existing, **profile_candidate}
     if "salary_tds" in merged:
         salary = deepcopy(merged.get("salary_income", [{}])[0])
         salary["tds"] = merged.pop("salary_tds")

@@ -16,7 +16,7 @@ DocumentType = Literal[
     "other",
 ]
 
-DocumentStatus = Literal["pending", "processing", "processed", "needs_review", "failed", "deleted"]
+DocumentStatus = Literal["UPLOADED", "PROCESSING", "PROCESSED", "REQUIRES_CONFIRMATION", "CONFIRMED", "FAILED", "DELETED", "pending"]
 
 
 class DocumentCreate(BaseModel):

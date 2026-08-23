@@ -23,7 +23,7 @@ Document upload is never required for TaxWise, Tax Engine, or ITR workflows. The
 
 ### Planned stages
 1. [x] Optional PDF upload entry point
-2. [ ] PDF text extraction
+2. [x] PDF text extraction for text-based PDFs
 3. [ ] OCR for scanned PDFs
 4. [ ] Document classification
 5. [ ] User confirmation (Confirm, Edit, Reject)
