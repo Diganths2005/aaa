@@ -73,6 +73,17 @@ See [CONVERSATIONAL_ONBOARDING.md](CONVERSATIONAL_ONBOARDING.md) for state, vali
 
 **Milestone**: Dashboard → File ITR → Preview → Download PDF
 
+## Current Presentation Milestone: ITR-1 Preparation + PDF Export
+
+- [x] Deterministic ITR-1 eligibility check for supported AY 2026-27 scope
+- [x] ITR-1 preparation mapped from the existing Tax Engine
+- [x] Two-panel preview with grounded TaxWise explanations
+- [x] Profile edit and recalculation flow
+- [x] Real TaxWise preparation PDF download
+- [ ] Government filing, e-verification, and acknowledgement
+
+See [ITR1.md](ITR1.md) for supported scope and limitations.
+
 ---
 
 ## Phase 3: ITR Filing (Week 5-6)

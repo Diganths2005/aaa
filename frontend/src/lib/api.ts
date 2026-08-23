@@ -84,4 +84,13 @@ export const onboardingAPI = {
   documentCandidate: (candidateValues: Record<string, unknown>) => apiClient.post(`${API_V1_URL}/onboarding/document-candidate`, { candidate_values: candidateValues }),
 };
 
+export const itrAPI = {
+  eligibility: () => apiClient.post(`${API_URL}/api/itr/eligibility`),
+  current: () => apiClient.get(`${API_URL}/api/itr/current`),
+  prepare: (regime: 'old' | 'new' = 'new') => apiClient.post(`${API_URL}/api/itr/prepare`, { regime }),
+  recalculate: (regime: 'old' | 'new' = 'new') => apiClient.post(`${API_URL}/api/itr/recalculate`, { regime }),
+  ask: (question: string) => apiClient.post(`${API_URL}/api/itr/ask`, { question }),
+  pdf: (regime: 'old' | 'new' = 'new') => apiClient.post(`${API_URL}/api/itr/pdf`, { regime }, { responseType: 'blob' }),
+};
+
 export default apiClient;

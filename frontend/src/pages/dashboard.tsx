@@ -2,7 +2,7 @@ import React, { ChangeEvent, useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
-import { documentsAPI } from '@/lib/api';
+import { documentsAPI, itrAPI } from '@/lib/api';
 
 type UserDocument = {
   id: string;
@@ -17,6 +17,8 @@ const DashboardPage: React.FC = () => {
   const { user, isAuthenticated, logout } = useAuthStore();
   const [documents, setDocuments] = useState<UserDocument[]>([]);
   const [documentMessage, setDocumentMessage] = useState('');
+  const [itrMessage, setItrMessage] = useState('');
+  const [checkingItr, setCheckingItr] = useState(false);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -54,6 +56,23 @@ const DashboardPage: React.FC = () => {
       setDocumentMessage('Document registered. Processing will be added in the next phase.');
     } catch {
       setDocumentMessage('Document registration is unavailable right now.');
+    }
+  };
+
+  const handleFileItr = async () => {
+    setCheckingItr(true);
+    setItrMessage("Let's check your ITR eligibility.");
+    try {
+      const response = await itrAPI.eligibility();
+      if (response.data.eligible) {
+        setItrMessage('Based on your current Tax Profile, ITR-1 can be prepared.');
+      } else {
+        setItrMessage(`ITR-1 cannot currently be prepared because ${response.data.reasons.join(' ')}`);
+      }
+    } catch (error: any) {
+      setItrMessage(error.response?.data?.detail || 'Complete and save your Tax Profile before preparing ITR-1.');
+    } finally {
+      setCheckingItr(false);
     }
   };
 
@@ -115,16 +134,15 @@ const DashboardPage: React.FC = () => {
                 <div className="flex items-center justify-between">
                   <div>
                     <p className="text-gray-600 text-sm font-medium">File ITR</p>
-                    <p className="text-2xl font-bold text-green-600 mt-2">Coming Soon</p>
+                    <p className="text-2xl font-bold text-green-600 mt-2">ITR-1 preparation</p>
                   </div>
                   <div className="text-4xl">📄</div>
                 </div>
-                <button
-                  disabled
-                  className="mt-4 w-full bg-gray-300 text-gray-600 py-2 rounded-md cursor-not-allowed"
-                >
-                  Disabled
+                <button onClick={handleFileItr} disabled={checkingItr} className="mt-4 w-full bg-green-600 text-white py-2 rounded-md hover:bg-green-700 disabled:opacity-50">
+                  {checkingItr ? 'Checking...' : 'File ITR'}
                 </button>
+                {itrMessage && <p className="mt-3 text-sm text-gray-700" role="status">{itrMessage}</p>}
+                {itrMessage.startsWith('Based on') && <Link href="/itr-preview"><button className="mt-2 w-full rounded-md border border-green-600 py-2 text-sm font-medium text-green-700">Continue</button></Link>}
               </div>
 
               {/* AI Copilot Card */}
