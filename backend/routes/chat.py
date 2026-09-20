@@ -5,7 +5,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 
-from config import OPENAI_API_KEY, OPENAI_MODEL
+from config import GEMINI_API_KEY, GEMINI_MODEL
 from database import get_db
 from models.tax_profile import TaxProfile
 from models.user import User
@@ -104,11 +104,12 @@ def chat_with_taxwise(
     answer = _fallback_answer(message, profile_payload, comparison)
     response_mode = "fallback"
 
-    if OPENAI_API_KEY:
+    if GEMINI_API_KEY:
         try:
-            from openai import OpenAI
+            import google.generativeai as genai
 
-            client = OpenAI(api_key=OPENAI_API_KEY)
+            genai.configure(api_key=GEMINI_API_KEY)
+            client = genai.GenerativeModel(GEMINI_MODEL)
             context = {
                 "user_message": message,
                 "assessment_year": profile_payload.assessment_year if profile_payload else "unknown",
@@ -120,27 +121,21 @@ def chat_with_taxwise(
                 },
                 "retrieved_knowledge": [item.text for item in retrieved],
             }
-            completion = client.chat.completions.create(
-                model=OPENAI_MODEL,
-                messages=[
-                    {
-                        "role": "system",
-                        "content": (
-                            "You are TaxWise, a strict Indian personal tax assistant. Explain tax matters using only the provided tax context. "
-                            "Never invent tax numbers or a final tax result. If the user asks for tax calculations, summarize the deterministic engine output exactly. "
-                            "Do not answer unrelated topics."
-                        ),
-                    },
-                    {"role": "user", "content": f"Tax context: {context}\n\nUser question: {message}"},
-                ],
-                max_output_tokens=250,
+            completion = client.generate_content(
+                contents=(
+                    "You are TaxWise, a strict Indian personal tax assistant. Explain tax matters using only the provided tax context. "
+                    "Never invent tax numbers or a final tax result. If the user asks for tax calculations, summarize the deterministic engine output exactly. "
+                    "Do not answer unrelated topics.\n\n"
+                    f"Tax context: {context}\n\nUser question: {message}"
+                ),
+                generation_config={"max_output_tokens": 250},
             )
-            provider_answer = completion.choices[0].message.content if completion.choices else None
+            provider_answer = getattr(completion, "text", None)
             if provider_answer:
                 answer = provider_answer.strip()
-                response_mode = "openai"
+                response_mode = "gemini"
         except Exception as exc:
-            print(f"OpenAI chatbot request failed: {type(exc).__name__}: {exc}")
+            print(f"Gemini chatbot request failed: {type(exc).__name__}: {exc}")
 
     sources = []
     if profile_payload:
@@ -149,6 +144,6 @@ def chat_with_taxwise(
         sources.append("Deterministic Tax Engine")
     sources.extend(sorted({f"RAG · {item.source_name}" for item in retrieved}))
 
-    if response_mode == "openai":
-        sources.append("OpenAI")
+    if response_mode == "gemini":
+        sources.append("Gemini")
     return ChatMessageResponse(answer=answer, sources=sources, mode=response_mode)

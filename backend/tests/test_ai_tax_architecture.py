@@ -102,30 +102,34 @@ def test_ai_receives_tax_engine_numbers_in_prompt(monkeypatch):
 
     captured = {}
 
-    class FakeCompletions:
+    class FakeGeminiModel:
+        def __init__(self, model):
+            captured["model"] = model
+
         @staticmethod
-        def create(**kwargs):
+        def generate_content(**kwargs):
             captured["kwargs"] = kwargs
-            message = type("FakeMessage", (), {"content": "Explained using the deterministic engine result."})()
-            choice = type("FakeChoice", (), {"message": message})()
-            return type("FakeCompletion", (), {"choices": [choice]})()
+            return type("FakeCompletion", (), {"text": "Explained using the deterministic engine result."})()
 
-    class FakeOpenAI:
-        def __init__(self, api_key):
+    class FakeGemini:
+        @staticmethod
+        def configure(api_key):
             captured["api_key"] = api_key
-            self.chat = type("FakeChat", (), {"completions": FakeCompletions()})()
 
-    import openai
+        GenerativeModel = FakeGeminiModel
 
-    monkeypatch.setattr(openai, "OpenAI", FakeOpenAI, raising=False)
-    chat_route.OPENAI_API_KEY = "fake-key"
-    chat_route.OPENAI_MODEL = "gpt-4o-mini"
+    import google.generativeai as genai
+
+    monkeypatch.setattr(chat_route, "GEMINI_API_KEY", "fake-key")
+    monkeypatch.setattr(chat_route, "GEMINI_MODEL", "gemini-2.5-flash")
+    monkeypatch.setattr(genai, "configure", FakeGemini.configure)
+    monkeypatch.setattr(genai, "GenerativeModel", FakeGemini.GenerativeModel)
 
     response = client.post("/api/v1/chat", headers=headers, json={"message": "Which regime is better for me?"})
 
     assert response.status_code == 200
     assert "Explained using the deterministic engine result." in response.json()["answer"]
-    assert "old_tax" in str(captured["kwargs"]["messages"])
-    assert "new_tax" in str(captured["kwargs"]["messages"])
-    assert "Never invent tax numbers or a final tax result" in captured["kwargs"]["messages"][0]["content"]
-    assert response.json()["mode"] == "openai"
+    assert "old_tax" in str(captured["kwargs"]["contents"])
+    assert "new_tax" in str(captured["kwargs"]["contents"])
+    assert "Never invent tax numbers or a final tax result" in captured["kwargs"]["contents"]
+    assert response.json()["mode"] == "gemini"

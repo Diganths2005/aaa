@@ -22,6 +22,8 @@ API_V1_STR = "/api/v1"
 PROJECT_NAME = "TaxWise"
 PROJECT_VERSION = "0.1.0"
 
-# OpenAI Configuration (server-side only)
+# AI provider configuration (server-side only)
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
