@@ -102,16 +102,18 @@ def test_ai_receives_tax_engine_numbers_in_prompt(monkeypatch):
 
     captured = {}
 
-    class FakeResponses:
+    class FakeCompletions:
         @staticmethod
         def create(**kwargs):
             captured["kwargs"] = kwargs
-            return type("FakeCompletion", (), {"output_text": "Explained using the deterministic engine result."})()
+            message = type("FakeMessage", (), {"content": "Explained using the deterministic engine result."})()
+            choice = type("FakeChoice", (), {"message": message})()
+            return type("FakeCompletion", (), {"choices": [choice]})()
 
     class FakeOpenAI:
         def __init__(self, api_key):
             captured["api_key"] = api_key
-            self.responses = FakeResponses()
+            self.chat = type("FakeChat", (), {"completions": FakeCompletions()})()
 
     import openai
 
@@ -123,6 +125,7 @@ def test_ai_receives_tax_engine_numbers_in_prompt(monkeypatch):
 
     assert response.status_code == 200
     assert "Explained using the deterministic engine result." in response.json()["answer"]
-    assert "old_tax" in str(captured["kwargs"]["input"])
-    assert "new_tax" in str(captured["kwargs"]["input"])
-    assert "Never invent tax numbers or a final tax result" in captured["kwargs"]["input"][0]["content"]
+    assert "old_tax" in str(captured["kwargs"]["messages"])
+    assert "new_tax" in str(captured["kwargs"]["messages"])
+    assert "Never invent tax numbers or a final tax result" in captured["kwargs"]["messages"][0]["content"]
+    assert response.json()["mode"] == "openai"

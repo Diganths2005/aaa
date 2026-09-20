@@ -58,7 +58,7 @@ const TaxWisePage: React.FC = () => {
         {
           role: 'assistant',
           text: payload.answer,
-          sources: payload.sources ?? [],
+          sources: payload.mode === 'fallback' ? [...(payload.sources ?? []), 'AI provider unavailable; deterministic fallback'] : payload.sources ?? [],
         },
       ]);
     } catch {
