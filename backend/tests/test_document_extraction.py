@@ -6,6 +6,7 @@ from reportlab.pdfgen.canvas import Canvas
 
 from documents.extractor import process_pdf
 from documents.field_extractor import parse_currency
+from documents.pdf_extractor import extract_pdf_pages
 
 
 def synthetic_form16() -> bytes:
@@ -76,3 +77,13 @@ def test_scanned_pdf_requires_ocr():
     Canvas(output).save()
     with pytest.raises(ValueError, match="DOCUMENT_REQUIRES_OCR"):
         process_pdf(output.getvalue())
+
+
+def test_scanned_pdf_uses_ocr_fallback(monkeypatch):
+    output = BytesIO()
+    canvas = Canvas(output)
+    canvas.showPage()
+    canvas.save()
+
+    monkeypatch.setattr("documents.pdf_extractor.pytesseract.image_to_string", lambda image: "Employee Name: OCR User")
+    assert extract_pdf_pages(output.getvalue()) == ["Employee Name: OCR User"]
