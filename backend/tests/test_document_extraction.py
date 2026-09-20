@@ -40,6 +40,29 @@ def test_extracts_form16_candidates_from_pdf_text():
     assert values["deduction_80D"] == Decimal("20000")
 
 
+def test_extracts_common_form16_labels_without_colons():
+    output = BytesIO()
+    canvas = Canvas(output)
+    lines = [
+        "Name of Employee Diganth H M",
+        "PAN No. ABCDE1234F",
+        "Employer Name Example Technologies Pvt Ltd",
+        "Total Gross Salary 840000",
+        "Total amount of TDS deducted 42000",
+        "Deductions under section 80C 100000",
+    ]
+    for index, line in enumerate(lines):
+        canvas.drawString(40, 780 - index * 24, line)
+    canvas.save()
+
+    values = {candidate.field: candidate.value for candidate in process_pdf(output.getvalue()).candidates}
+    assert values["name"] == "Diganth H M"
+    assert values["pan_number"] == "ABCDE1234F"
+    assert values["salary_income"] == Decimal("840000")
+    assert values["tds"] == Decimal("42000")
+    assert values["deduction_80C"] == Decimal("100000")
+
+
 @pytest.mark.parametrize(
     ("value", "expected"),
     [("₹8,40,000", Decimal("840000")), ("8.4 lakh", Decimal("840000")), ("840000", Decimal("840000"))],

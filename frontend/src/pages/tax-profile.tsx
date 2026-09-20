@@ -5,6 +5,17 @@ import { documentsAPI, onboardingAPI, taxProfileAPI } from '@/lib/api';
 import { TaxProfile } from '@/types';
 
 const inputClass = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm';
+const apiErrorMessage = (error: any, fallback: string) => {
+  const detail = error?.response?.data?.detail;
+  if (typeof detail === 'string') return detail;
+  if (Array.isArray(detail)) {
+    return detail.map((item) => {
+      const location = Array.isArray(item?.loc) ? item.loc.filter(Boolean).join('.') : '';
+      return location ? `${location}: ${item.msg || 'Invalid value'}` : item.msg || 'Invalid value';
+    }).join(' ');
+  }
+  return fallback;
+};
 const blankProfile: TaxProfile = {
   residential_status: 'resident', employment_type: 'salaried', financial_year: '2025-26', assessment_year: '2026-27',
   is_senior_citizen: false, is_director: false, has_unlisted_equity: false, has_foreign_assets: false,
@@ -49,7 +60,7 @@ const TaxProfilePage: React.FC = () => {
   useEffect(() => {
     if (!hydrated.current || !formData.id) return;
     const timer = window.setTimeout(() => {
-      taxProfileAPI.update(formData.id as string, formData).catch(() => setError('Your latest change could not be saved.'));
+      taxProfileAPI.update(formData.id as string, formData).catch((err) => setError(apiErrorMessage(err, 'Your latest change could not be saved.')));
     }, 500);
     return () => window.clearTimeout(timer);
   }, [formData]);
@@ -88,7 +99,7 @@ const TaxProfilePage: React.FC = () => {
       hydrated.current = true;
       setAssistantMessages((current) => [...current, 'Your profile is saved. You can keep editing it here.']);
     }
-    catch (err: any) { setError(err.response?.data?.detail || 'Could not save your tax profile.'); }
+    catch (err: any) { setError(apiErrorMessage(err, 'Could not save your tax profile.')); }
     finally { setSaving(false); }
   };
   const saveAssistantMessage = (message: string) => setAssistantMessages((current) => [...current, message]);
@@ -106,7 +117,7 @@ const TaxProfilePage: React.FC = () => {
         setProposal({ salary: values.salary_income?.[0]?.gross_salary ?? undefined, tds: values.salary_tds ?? undefined });
       }
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'The assistant could not process that answer.');
+      setError(apiErrorMessage(err, 'The assistant could not process that answer.'));
     }
   };
   const confirmProposal = async () => {
@@ -116,7 +127,7 @@ const TaxProfilePage: React.FC = () => {
       setProgress(response.data.progress);
       if (response.data.profile) setFormData({ ...blankProfile, ...response.data.profile });
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Could not save the proposed profile update.');
+      setError(apiErrorMessage(err, 'Could not save the proposed profile update.'));
       return;
     }
     setProposal(null);
@@ -149,7 +160,7 @@ const TaxProfilePage: React.FC = () => {
     } catch (err: any) {
       const detail = err.response?.data?.detail;
       saveAssistantMessage(detail === 'DOCUMENT_REQUIRES_OCR' ? 'This PDF appears to be scanned. OCR is not available yet, so you can continue manually.' : 'I couldn\'t extract information from this document. You can continue manually.');
-      setError(detail && detail !== 'DOCUMENT_REQUIRES_OCR' ? detail : '');
+      setError(detail && detail !== 'DOCUMENT_REQUIRES_OCR' ? apiErrorMessage(err, '') : '');
     } finally {
       setDocumentProcessing(false);
     }
@@ -176,7 +187,7 @@ const TaxProfilePage: React.FC = () => {
       setAssistantMessages((current) => [...current, "I've filled in the confirmed values from your document. Let's continue with the next missing field."]);
       setDocumentCandidates(null);
     } catch (err: any) {
-      setError(err.response?.data?.detail || 'Could not confirm document values.');
+      setError(apiErrorMessage(err, 'Could not confirm document values.'));
     }
   };
 
