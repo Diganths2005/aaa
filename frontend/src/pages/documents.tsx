@@ -20,6 +20,7 @@ const DocumentsPage: React.FC = () => {
   const [message, setMessage] = useState('');
   const [pendingDocument, setPendingDocument] = useState<{ id: string; candidates: Candidate[]; values: Record<string, unknown> } | null>(null);
   const [processing, setProcessing] = useState(false);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -72,6 +73,20 @@ const DocumentsPage: React.FC = () => {
       setPendingDocument(null);
     } catch {
       setMessage('TaxWise could not complete the document review.');
+    }
+  };
+
+  const deleteDocument = async (documentId: string) => {
+    setDeleting(documentId);
+    try {
+      await documentsAPI.delete(documentId);
+      setDocuments((current) => current.filter((document) => document.id !== documentId));
+      if (pendingDocument?.id === documentId) setPendingDocument(null);
+      setMessage('Document removed.');
+    } catch {
+      setMessage('TaxWise could not remove this document.');
+    } finally {
+      setDeleting(null);
     }
   };
 
@@ -128,7 +143,7 @@ const DocumentsPage: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="chip">{document.status}</span>
-                    <button className="rounded-xl border border-border bg-white px-3 py-2 text-xs font-semibold text-[#0F172A]">Review</button>
+                    <button type="button" onClick={() => deleteDocument(document.id)} disabled={deleting === document.id} className="rounded-xl border border-red-200 bg-white px-3 py-2 text-xs font-semibold text-red-700 disabled:opacity-50">{deleting === document.id ? 'Removing...' : 'Remove'}</button>
                   </div>
                 </div>
               ))}
