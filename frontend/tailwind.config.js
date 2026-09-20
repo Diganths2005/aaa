@@ -1,5 +1,5 @@
 /** @type {import('tailwindcss').Config} */
-export default {
+module.exports = {
   content: [
     "./src/pages/**/*.{js,ts,jsx,tsx}",
     "./src/components/**/*.{js,ts,jsx,tsx}",
@@ -7,8 +7,25 @@ export default {
   theme: {
     extend: {
       colors: {
-        primary: "#1e40af",
-        secondary: "#0891b2",
+        primary: "#064E3B",
+        secondary: "#047857",
+        accent: "#10B981",
+        mint: "#ECFDF5",
+        slate: "#F8FAFC",
+        card: "#FFFFFF",
+        text: "#0F172A",
+        muted: "#64748B",
+        border: "#E2E8F0",
+        blue: "#2563EB",
+        purple: "#7C3AED",
+        orange: "#F59E0B",
+        red: "#DC2626",
+      },
+      boxShadow: {
+        soft: "0 10px 30px rgba(15, 23, 42, 0.08)",
+      },
+      borderRadius: {
+        panel: "22px",
       },
     },
   },

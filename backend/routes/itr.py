@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from itr.pdf import generate_itr1_pdf
-from itr.service import check_itr1_eligibility, explain_itr_question, prepare_itr1
+from itr.service import check_itr1_eligibility, explain_itr_question, prepare_itr1, prepare_return, select_return
 from models.tax_profile import TaxProfile
 from models.user import User
 from routes.auth import get_current_user
@@ -27,19 +27,28 @@ def itr1_eligibility(current_user: User = Depends(get_current_user), db: Session
     return check_itr1_eligibility(profile).__dict__
 
 
+@router.get("/selection")
+def itr_selection(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    _, profile = current_profile(current_user, db)
+    return select_return(profile).__dict__
+
+
 @router.post("/prepare")
 def prepare_itr(current_request: ITRPrepareRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _, profile = current_profile(current_user, db)
-    eligibility = check_itr1_eligibility(profile)
-    if not eligibility.eligible:
-        raise HTTPException(status_code=422, detail={"message": "ITR-1 is not eligible", "reasons": eligibility.reasons})
-    return prepare_itr1(profile, f"{current_user.first_name} {current_user.last_name}", current_request.regime)
+    try:
+        return prepare_return(profile, f"{current_user.first_name} {current_user.last_name}", current_request.regime, current_request.itr_form)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.get("/current")
 def current_itr(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _, profile = current_profile(current_user, db)
-    return prepare_itr1(profile, f"{current_user.first_name} {current_user.last_name}")
+    try:
+        return prepare_return(profile, f"{current_user.first_name} {current_user.last_name}")
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
 
 
 @router.post("/recalculate")
@@ -50,12 +59,16 @@ def recalculate_itr(current_request: ITRPrepareRequest, current_user: User = Dep
 @router.post("/ask")
 def ask_itr(current_request: ITRQuestionRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _, profile = current_profile(current_user, db)
-    preparation = prepare_itr1(profile, f"{current_user.first_name} {current_user.last_name}")
+    preparation = prepare_return(profile, f"{current_user.first_name} {current_user.last_name}")
     return {"assistant_message": explain_itr_question(current_request.question, preparation)}
 
 
 @router.post("/pdf")
 def itr_pdf(current_request: ITRPrepareRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _, profile = current_profile(current_user, db)
-    preparation = prepare_itr1(profile, f"{current_user.first_name} {current_user.last_name}", current_request.regime)
-    return Response(content=generate_itr1_pdf(preparation), media_type="application/pdf", headers={"Content-Disposition": "attachment; filename=taxwise-itr1-preparation-ay-2026-27.pdf"})
+    try:
+        preparation = prepare_return(profile, f"{current_user.first_name} {current_user.last_name}", current_request.regime, current_request.itr_form)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc)) from exc
+    form = preparation["itr_form"].lower().replace("-", "")
+    return Response(content=generate_itr1_pdf(preparation), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=taxwise-{form}-preparation-ay-2026-27.pdf"})

@@ -12,6 +12,16 @@ from main import app
 
 client = TestClient(app)
 
+USED_PANS = set()
+
+
+def unique_pan():
+    while True:
+        pan = f"ABCDE{uuid.uuid4().int % 10000:04d}F"
+        if pan not in USED_PANS:
+            USED_PANS.add(pan)
+            return pan
+
 
 def authenticated_client():
     email = f"onboarding-{uuid.uuid4()}@example.com"
@@ -28,7 +38,7 @@ def test_session_message_and_confirmation_updates_profile():
 
     # Move through required personal questions to reach salary.
     for answer in ("Test User", "ABCDE1234F", "1990-01-01", "resident", "salaried", "Acme"):
-        answer = "ABCDE" + str(uuid.uuid4().int)[0:4] + "F" if answer == "ABCDE1234F" else answer
+        answer = unique_pan() if answer == "ABCDE1234F" else answer
         response = client.post("/api/v1/onboarding/message", headers=headers, json={"message": answer})
         assert response.status_code == 200
         if response.json()["requires_confirmation"]:
@@ -48,7 +58,7 @@ def test_session_message_and_confirmation_updates_profile():
 def test_onboarding_reject_does_not_create_profile_from_candidate():
     headers = authenticated_client()
     client.post("/api/v1/onboarding/session", headers=headers)
-    for answer in ("Test User", "ABCDE" + str(uuid.uuid4().int)[0:4] + "F", "1990-01-01", "resident", "salaried", "Acme", "6 lakh"):
+    for answer in ("Test User", unique_pan(), "1990-01-01", "resident", "salaried", "Acme", "6 lakh"):
         response = client.post("/api/v1/onboarding/message", headers=headers, json={"message": answer})
         if response.json().get("requires_confirmation"):
             if answer == "6 lakh":

@@ -3,6 +3,7 @@ from decimal import Decimal
 from schemas.tax_profile import TaxProfileCreate
 
 from .capital_gains import summarize_capital_gains
+from .rules.ay_2026_27.capital_gains import CAPITAL_GAIN_ASSET_TYPES
 from .cess import calculate_cess
 from .deductions import calculate_deductions
 from .income import calculate_income, taxpayer_age_category
@@ -23,15 +24,19 @@ def paid_tax(profile: TaxProfileCreate) -> tuple[Decimal, Decimal, Decimal]:
     return tuple(amounts[key] for key in ("tds", "advance_tax", "self_assessment"))
 
 
-def calculate_tax(profile: TaxProfileCreate, regime: str) -> TaxCalculationResult:
+def calculate_tax(profile: TaxProfileCreate, regime: str, allow_expanded_income: bool = False) -> TaxCalculationResult:
     if profile.assessment_year != "2026-27":
         raise TaxEngineError("INVALID_ASSESSMENT_YEAR", "Only AY 2026-27 is supported")
     if regime not in {"old", "new"}:
         raise TaxEngineError("INVALID_REGIME", "Regime must be old or new")
-    if profile.business_income:
-        raise TaxEngineError("UNSUPPORTED_BUSINESS_INCOME", "Business and professional income is planned for Phase 2B")
+    if profile.capital_gains and any(item.asset_type not in CAPITAL_GAIN_ASSET_TYPES for item in profile.capital_gains):
+        raise TaxEngineError("UNSUPPORTED_CAPITAL_GAINS", "This capital-gains asset type is not supported")
+    if profile.business_income and not allow_expanded_income:
+        raise TaxEngineError("UNSUPPORTED_BUSINESS_INCOME", "Business and professional income requires an ITR preparation flow")
+    if profile.business_income and any(item.net_profit_or_loss < ZERO for item in profile.business_income):
+        raise TaxEngineError("UNSUPPORTED_BUSINESS_LOSS", "Business losses require schedules that are not yet supported")
     if profile.foreign_income_assets:
-        raise TaxEngineError("UNSUPPORTED_FOREIGN_INCOME", "Foreign income and assets are planned for Phase 2B")
+        raise TaxEngineError("UNSUPPORTED_FOREIGN_INCOME", "Foreign income and asset schedules are not yet supported")
 
     income = calculate_income(profile, regime)
     capital_gains = summarize_capital_gains(profile.capital_gains)
@@ -73,6 +78,7 @@ def calculate_tax(profile: TaxProfileCreate, regime: str) -> TaxCalculationResul
         house_property_loss_set_off=round_rupee(income.house_property_loss_set_off),
         house_property_loss_carried_forward=round_rupee(income.house_property_loss_carried_forward),
         other_sources_income=round_rupee(income.other_sources),
+        business_income=round_rupee(income.business_income),
         capital_gains=capital_gains,
         ordinary_taxable_income=ordinary_taxable_income,
         capital_gains_tax=capital_gains.special_rate_tax,

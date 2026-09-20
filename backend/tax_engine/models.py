@@ -54,6 +54,7 @@ class TaxCalculationResult(BaseModel):
     house_property_loss_set_off: Decimal
     house_property_loss_carried_forward: Decimal
     other_sources_income: Decimal
+    business_income: Decimal
     capital_gains: CapitalGainsSummary
     ordinary_taxable_income: Decimal
     capital_gains_tax: Decimal

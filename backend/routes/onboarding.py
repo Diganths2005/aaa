@@ -4,6 +4,7 @@ from typing import Any, Dict, Optional
 from fastapi import APIRouter, Depends, HTTPException, status
 from fastapi.encoders import jsonable_encoder
 from pydantic import ValidationError
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -132,7 +133,12 @@ def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], cur
     else:
         profile = TaxProfile(id=generate_id(), user_id=current_user.id, **validated.model_dump(mode="json"))
         db.add(profile)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        message = "A tax profile with this PAN already exists. Please use a different PAN or update the existing profile."
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message) from exc
     db.refresh(profile)
     session.profile_id = profile.id
     return profile

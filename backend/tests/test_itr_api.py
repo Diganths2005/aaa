@@ -11,10 +11,20 @@ from main import app
 
 client = TestClient(app)
 
+USED_PANS = set()
+
+
+def unique_pan():
+    while True:
+        pan = f"ABCDE{uuid.uuid4().int % 10000:04d}F"
+        if pan not in USED_PANS:
+            USED_PANS.add(pan)
+            return pan
+
 
 def test_itr_api_end_to_end():
     email = f"itr-{uuid.uuid4()}@example.com"
-    pan = "ABCDE" + str(uuid.uuid4().int)[:4] + "F"
+    pan = unique_pan()
     signup = client.post("/api/v1/auth/signup", json={"email": email, "first_name": "Demo", "last_name": "Taxpayer", "password": "password123"})
     headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
     profile = client.post("/api/v1/tax-profiles", headers=headers, json={

@@ -13,6 +13,16 @@ from main import app
 
 client = TestClient(app)
 
+USED_PANS = set()
+
+
+def unique_pan():
+    while True:
+        pan = f"ABCDE{uuid.uuid4().int % 10000:04d}F"
+        if pan not in USED_PANS:
+            USED_PANS.add(pan)
+            return pan
+
 
 def pdf_bytes(pan="ABCDE1234F"):
     output = BytesIO()
@@ -36,7 +46,7 @@ def headers_for_user():
 
 def test_upload_process_and_confirm_updates_profile():
     headers = headers_for_user()
-    pan = "ABCDE" + str(uuid.uuid4().int)[:4] + "F"
+    pan = unique_pan()
     upload = client.post("/api/v1/documents/upload", headers=headers, files={"file": ("TaxWise_Test_Form16.pdf", pdf_bytes(pan), "application/pdf")})
     assert upload.status_code == 202
     document_id = upload.json()["id"]
@@ -57,7 +67,7 @@ def test_upload_process_and_confirm_updates_profile():
 def test_document_access_is_isolated_by_user():
     owner = headers_for_user()
     other = headers_for_user()
-    pan = "ABCDE" + str(uuid.uuid4().int)[:4] + "F"
+    pan = unique_pan()
     upload = client.post("/api/v1/documents/upload", headers=owner, files={"file": ("test.pdf", pdf_bytes(pan), "application/pdf")})
     document_id = upload.json()["id"]
     assert client.post(f"/api/v1/documents/{document_id}/process", headers=other).status_code == 404

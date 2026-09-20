@@ -93,13 +93,23 @@ export const onboardingAPI = {
   documentCandidate: (candidateValues: Record<string, unknown>) => apiClient.post(`${API_V1_URL}/onboarding/document-candidate`, { candidate_values: candidateValues }),
 };
 
+export const chatAPI = {
+  send: (message: string) => apiClient.post(`${API_V1_URL}/chat`, { message }),
+};
+
+export const taxAPI = {
+  calculate: (payload: any) => apiClient.post(`${API_URL}/api/tax/calculate`, payload),
+  compareRegimes: (payload: any) => apiClient.post(`${API_URL}/api/tax/compare-regimes`, payload),
+};
+
 export const itrAPI = {
   eligibility: () => apiClient.post(`${API_URL}/api/itr/eligibility`),
+  selection: () => apiClient.get(`${API_URL}/api/itr/selection`),
   current: () => apiClient.get(`${API_URL}/api/itr/current`),
-  prepare: (regime: 'old' | 'new' = 'new') => apiClient.post(`${API_URL}/api/itr/prepare`, { regime }),
-  recalculate: (regime: 'old' | 'new' = 'new') => apiClient.post(`${API_URL}/api/itr/recalculate`, { regime }),
+  prepare: (regime: 'old' | 'new' = 'new', itr_form?: 'ITR-1' | 'ITR-2' | 'ITR-3' | 'ITR-4') => apiClient.post(`${API_URL}/api/itr/prepare`, { regime, itr_form }),
+  recalculate: (regime: 'old' | 'new' = 'new', itr_form?: 'ITR-1' | 'ITR-2' | 'ITR-3' | 'ITR-4') => apiClient.post(`${API_URL}/api/itr/recalculate`, { regime, itr_form }),
   ask: (question: string) => apiClient.post(`${API_URL}/api/itr/ask`, { question }),
-  pdf: (regime: 'old' | 'new' = 'new') => apiClient.post(`${API_URL}/api/itr/pdf`, { regime }, { responseType: 'blob' }),
+  pdf: (regime: 'old' | 'new' = 'new', itr_form?: 'ITR-1' | 'ITR-2' | 'ITR-3' | 'ITR-4') => apiClient.post(`${API_URL}/api/itr/pdf`, { regime, itr_form }, { responseType: 'blob' }),
 };
 
 export default apiClient;
