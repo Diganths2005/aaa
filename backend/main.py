@@ -3,7 +3,7 @@ from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
 from config import ALLOWED_ORIGINS, PROJECT_NAME, PROJECT_VERSION, API_V1_STR
 from database import Base, engine
-from routes import auth, chat, documents, itr, onboarding, tax_profile, tax
+from routes import auth, chat, deductions, documents, itr, onboarding, tax_profile, tax, what_if
 from tax_engine.models import TaxEngineError
 
 # Create tables
@@ -31,11 +31,13 @@ app.add_middleware(
 # Include routers
 app.include_router(auth.router, prefix=API_V1_STR)
 app.include_router(tax_profile.router, prefix=API_V1_STR)
+app.include_router(deductions.router, prefix=API_V1_STR)
 app.include_router(documents.router, prefix=API_V1_STR)
 app.include_router(onboarding.router, prefix=API_V1_STR)
 app.include_router(chat.router, prefix=API_V1_STR)
 app.include_router(itr.router)
 app.include_router(tax.router)
+app.include_router(what_if.router, prefix=API_V1_STR)
 
 @app.get("/")
 def read_root():

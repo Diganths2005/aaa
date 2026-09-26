@@ -87,7 +87,7 @@ def test_what_if_scenario_uses_engine_result_without_mutating_profile():
     assert saved_after.json()["salary_income"][0]["gross_salary"] != scenario_payload["salary_income"][0]["gross_salary"]
 
 
-def test_ai_receives_tax_engine_numbers_in_prompt(monkeypatch):
+def test_github_models_receives_structured_tax_numbers(monkeypatch):
     headers = authenticated_headers()
     profile_payload = {
         "pan_number": unique_pan(),
@@ -102,34 +102,65 @@ def test_ai_receives_tax_engine_numbers_in_prompt(monkeypatch):
 
     captured = {}
 
-    class FakeGeminiModel:
-        def __init__(self, model):
-            captured["model"] = model
-
+    class FakeCompletions:
         @staticmethod
-        def generate_content(**kwargs):
+        def create(**kwargs):
             captured["kwargs"] = kwargs
-            return type("FakeCompletion", (), {"text": "Explained using the deterministic engine result."})()
+            return type("FakeCompletion", (), {"choices": [type("Choice", (), {"message": type("Message", (), {"content": "Your new regime is currently better based on the confirmed income and deduction figures. The current comparison shows a lower calculated liability under that option for this assessment year. Review the displayed figures before making your final selection."})()})()]})()
 
-    class FakeGemini:
-        @staticmethod
-        def configure(api_key):
-            captured["api_key"] = api_key
+    class FakeClient:
+        def __init__(self, **kwargs):
+            captured["client"] = kwargs
+            self.chat = type("Chat", (), {"completions": FakeCompletions})()
 
-        GenerativeModel = FakeGeminiModel
-
-    import google.generativeai as genai
-
-    monkeypatch.setattr(chat_route, "GEMINI_API_KEY", "fake-key")
-    monkeypatch.setattr(chat_route, "GEMINI_MODEL", "gemini-2.5-flash")
-    monkeypatch.setattr(genai, "configure", FakeGemini.configure)
-    monkeypatch.setattr(genai, "GenerativeModel", FakeGemini.GenerativeModel)
+    monkeypatch.setattr(chat_route, "GITHUB_MODELS_TOKENS", ["fake-token"])
+    monkeypatch.setattr("openai.OpenAI", FakeClient)
 
     response = client.post("/api/v1/chat", headers=headers, json={"message": "Which regime is better for me?"})
 
     assert response.status_code == 200
-    assert "Explained using the deterministic engine result." in response.json()["answer"]
-    assert "old_tax" in str(captured["kwargs"]["contents"])
-    assert "new_tax" in str(captured["kwargs"]["contents"])
-    assert "Never invent tax numbers or a final tax result" in captured["kwargs"]["contents"]
-    assert response.json()["mode"] == "gemini"
+    assert "new regime" in response.json()["answer"].lower()
+    prompt = captured["kwargs"]["messages"][0]["content"]
+    assert "taxCalculation" in prompt
+    assert "newRegime" in prompt
+    assert "Do not calculate, infer, or add facts" in prompt
+    assert response.json()["mode"] == "assistant"
+
+
+def test_github_models_rejects_short_or_generic_tax_answers(monkeypatch):
+    headers = authenticated_headers()
+    profile_payload = {
+        "pan_number": unique_pan(),
+        "date_of_birth": "1990-01-01",
+        "residential_status": "resident",
+        "employment_type": "salaried",
+        "salary_income": [{"employer_name": "Acme", "gross_salary": 1000000, "standard_deduction": 0, "professional_tax": 0, "tds": 20000}],
+        "taxes_paid": [{"tax_type": "tds", "amount": 20000}],
+    }
+    created = client.post("/api/v1/tax-profiles", headers=headers, json=profile_payload)
+    assert created.status_code == 200
+
+    captured = {}
+
+    class FakeCompletions:
+        @staticmethod
+        def create(**kwargs):
+            captured["kwargs"] = kwargs
+            return type("FakeCompletion", (), {"choices": [type("Choice", (), {"message": type("Message", (), {"content": "I cannot determine which tax regime is"})()})()]})()
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.chat = type("Chat", (), {"completions": FakeCompletions})()
+
+    monkeypatch.setattr(chat_route, "GITHUB_MODELS_TOKENS", ["fake-token"])
+    monkeypatch.setattr("openai.OpenAI", FakeClient)
+
+    response = client.post("/api/v1/chat", headers=headers, json={"message": "Which regime is better for me?"})
+
+    assert response.status_code == 200
+    answer = response.json()["answer"]
+    assert "I cannot determine which tax regime is" not in answer
+    assert response.json()["mode"] == "deterministic"
+    assert "regime" in answer.lower()
+    assert "tax" in answer.lower()
+    assert captured["kwargs"]["max_tokens"] >= 500

@@ -67,3 +67,44 @@ def test_onboarding_reject_does_not_create_profile_from_candidate():
     rejected = client.post("/api/v1/onboarding/confirm", headers=headers, json={"action": "reject"})
     assert rejected.status_code == 200
     assert rejected.json()["profile"]["salary_income"] == []
+
+
+def test_document_candidate_with_tds_but_no_salary_does_not_crash():
+    headers = authenticated_client()
+    candidate = client.post(
+        "/api/v1/onboarding/document-candidate",
+        headers=headers,
+        json={"candidate_values": {"salary_tds": "150000", "deductions": [{"section": "80D", "amount": "25000"}]}},
+    )
+    assert candidate.status_code == 200
+
+    confirmed = client.post("/api/v1/onboarding/confirm", headers=headers, json={"action": "confirm"})
+    assert confirmed.status_code == 200
+    profile = confirmed.json()["profile"]
+    assert profile["salary_income"] == []
+    assert {item["tax_type"] for item in profile["taxes_paid"]} == {"tds"}
+
+
+def test_document_candidate_does_not_duplicate_tds_tax_payment():
+    headers = authenticated_client()
+    candidate = client.post(
+        "/api/v1/onboarding/document-candidate",
+        headers=headers,
+        json={
+            "candidate_values": {
+                "salary_tds": "150000",
+                "taxes_paid": [
+                    {"tax_type": "tds", "amount": "150000"},
+                    {"tax_type": "advance_tax", "amount": "50000"},
+                ],
+            }
+        },
+    )
+    assert candidate.status_code == 200
+
+    confirmed = client.post("/api/v1/onboarding/confirm", headers=headers, json={"action": "confirm"})
+    assert confirmed.status_code == 200
+    assert confirmed.json()["profile"]["taxes_paid"] == [
+        {"tax_type": "tds", "amount": "150000", "reference": None},
+        {"tax_type": "advance_tax", "amount": "50000", "reference": None},
+    ]

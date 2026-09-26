@@ -6,6 +6,7 @@ os.environ["DATABASE_URL"] = "sqlite:///./tax-api-test.db"
 os.environ["SECRET_KEY"] = "test-secret"
 
 from fastapi.testclient import TestClient
+from openpyxl import Workbook
 from reportlab.pdfgen.canvas import Canvas
 
 from main import app
@@ -35,6 +36,25 @@ def pdf_bytes(pan="ABCDE1234F"):
     ]):
         canvas.drawString(40, 780 - index * 24, line)
     canvas.save()
+    return output.getvalue()
+
+
+def excel_bytes(pan="ABCDE1234F"):
+    output = BytesIO()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "Form 16"
+    for row in [
+        ["Employee Name", "Diganth H M"],
+        ["PAN", pan],
+        ["Assessment Year", "2026-27"],
+        ["Employer", "Example Technologies Pvt Ltd"],
+        ["Gross Salary", "840000"],
+        ["TDS Deducted", "42000"],
+        ["Section 80C Investment", "100000"],
+    ]:
+        sheet.append(row)
+    workbook.save(output)
     return output.getvalue()
 
 
@@ -72,3 +92,35 @@ def test_document_access_is_isolated_by_user():
     document_id = upload.json()["id"]
     assert client.post(f"/api/v1/documents/{document_id}/process", headers=other).status_code == 404
     assert all(item["id"] != document_id for item in client.get("/api/v1/documents", headers=other).json())
+
+
+def test_excel_upload_process_and_list_preserves_extracted_values():
+    headers = headers_for_user()
+    pan = unique_pan()
+    upload = client.post(
+        "/api/v1/documents/upload",
+        headers=headers,
+        files={"file": ("TaxWise_Test_Form16.xlsx", excel_bytes(pan), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")},
+    )
+    assert upload.status_code == 202
+    document_id = upload.json()["id"]
+
+    processed = client.post(f"/api/v1/documents/{document_id}/process", headers=headers)
+    assert processed.status_code == 200
+    assert {item["field"] for item in processed.json()["candidates"]} >= {"name", "pan_number", "employer_name", "salary_income", "tds", "deduction_80C"}
+
+    listed = client.get("/api/v1/documents/", headers=headers)
+    saved = next(item for item in listed.json() if item["id"] == document_id)
+    assert saved["processing_result"]["candidates"]
+
+
+def test_excel_upload_accepts_browser_generic_mime_type():
+    headers = headers_for_user()
+    pan = unique_pan()
+    upload = client.post(
+        "/api/v1/documents/upload",
+        headers=headers,
+        files={"file": ("TaxWise_Test_Form16.xlsx", excel_bytes(pan), "application/octet-stream")},
+    )
+    assert upload.status_code == 202, upload.text
+    assert upload.json()["original_filename"] == "TaxWise_Test_Form16.xlsx"

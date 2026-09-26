@@ -3,6 +3,7 @@ import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/auth';
 import { documentsAPI, onboardingAPI, taxProfileAPI } from '@/lib/api';
 import { TaxProfile } from '@/types';
+import ReturnToDashboard from '@/components/ReturnToDashboard';
 
 const inputClass = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm';
 const apiErrorMessage = (error: any, fallback: string) => {
@@ -131,6 +132,8 @@ const TaxProfilePage: React.FC = () => {
       setAssistantMessages((current) => [...current, response.data.assistant_message]);
       setProgress(response.data.progress);
       if (response.data.profile) setFormData({ ...blankProfile, ...response.data.profile });
+      setDocumentCandidates(null);
+      setProposal(null);
     } catch (err: any) {
       setError(apiErrorMessage(err, 'Could not save the proposed profile update.'));
       return;
@@ -156,10 +159,16 @@ const TaxProfilePage: React.FC = () => {
       saveAssistantMessage(`PDF uploaded: ${file.name}. Processing...`);
       const uploaded = await documentsAPI.upload(file, formData.assessment_year);
       const processed = await documentsAPI.process(uploaded.data.id);
-      await onboardingAPI.documentCandidate(processed.data.onboarding_values);
       const candidateSummary = processed.data.candidates.map((candidate: { field: string; value: string }) => `${candidate.field.replace('deduction_', '')}: ${candidate.value}`).join(' | ');
       setDocumentCandidates(processed.data.candidates);
       setProposal({ salary: processed.data.onboarding_values.salary_income?.[0]?.gross_salary, tds: processed.data.onboarding_values.salary_tds });
+      if (processed.data.candidates.length) {
+        await onboardingAPI.documentCandidate(processed.data.onboarding_values);
+        const confirmed = await onboardingAPI.confirm('confirm');
+        if (confirmed.data.profile) setFormData({ ...blankProfile, ...confirmed.data.profile });
+        setDocumentCandidates(null);
+        setProposal(null);
+      }
       saveAssistantMessage(processed.data.candidates.length ? 'Document processed. I found information for your review.' : 'Document processed, but no supported tax fields were found.');
       if (candidateSummary) saveAssistantMessage(candidateSummary);
     } catch (err: any) {

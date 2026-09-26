@@ -51,6 +51,7 @@ export interface TaxProfile {
 
 export interface AuthStore {
   user: User | null; token: string | null; isAuthenticated: boolean; isLoading: boolean; error: string | null;
+  hydrate: () => void;
   login: (email: string, password: string) => Promise<void>;
   signup: (email: string, firstName: string, lastName: string, password: string) => Promise<void>;
   logout: () => void;

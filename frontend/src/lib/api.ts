@@ -4,6 +4,14 @@ import Cookies from 'js-cookie';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 const API_V1_URL = `${API_URL}/api/v1`;
 
+const sanitizeProfilePayload = <T extends Record<string, any>>(data: T): T => {
+  const payload = { ...data };
+  if (typeof payload.pan_number === 'string' && (payload.pan_number.includes('*') || /^\w{2}\*{6}\w{2}$/.test(payload.pan_number))) {
+    delete payload.pan_number;
+  }
+  return payload;
+};
+
 const apiClient: AxiosInstance = axios.create({
   baseURL: API_URL,
   headers: {
@@ -45,11 +53,11 @@ export const authAPI = {
 };
 
 export const taxProfileAPI = {
-  create: (data: any) => apiClient.post(`${API_V1_URL}/tax-profiles`, data),
+  create: (data: any) => apiClient.post(`${API_V1_URL}/tax-profiles/`, data),
   
   get: (id: string) => apiClient.get(`${API_V1_URL}/tax-profiles/${id}`),
   
-  update: (id: string, data: any) => apiClient.put(`${API_V1_URL}/tax-profiles/${id}`, data),
+  update: (id: string, data: any) => apiClient.put(`${API_V1_URL}/tax-profiles/${id}`, sanitizeProfilePayload(data)),
   
   getCurrentUser: () => apiClient.get(`${API_V1_URL}/tax-profiles/current`),
   
@@ -72,10 +80,10 @@ export const documentsAPI = {
 
   process: (documentId: string) => apiClient.post(`${API_V1_URL}/documents/${documentId}/process`),
 
-  list: () => apiClient.get(`${API_V1_URL}/documents`),
+  list: () => apiClient.get(`${API_V1_URL}/documents/`),
 
   register: (documentType: string, originalFilename: string, assessmentYear?: string) =>
-    apiClient.post(`${API_V1_URL}/documents`, {
+    apiClient.post(`${API_V1_URL}/documents/`, {
       document_type: documentType,
       original_filename: originalFilename,
       assessment_year: assessmentYear,
@@ -94,12 +102,24 @@ export const onboardingAPI = {
 };
 
 export const chatAPI = {
-  send: (message: string) => apiClient.post(`${API_V1_URL}/chat`, { message }),
+  send: (message: string) => apiClient.post(`${API_V1_URL}/chat`, { message }, { timeout: 20000 }),
 };
 
 export const taxAPI = {
-  calculate: (payload: any) => apiClient.post(`${API_URL}/api/tax/calculate`, payload),
-  compareRegimes: (payload: any) => apiClient.post(`${API_URL}/api/tax/compare-regimes`, payload),
+  calculate: (payload: any) => apiClient.post(`${API_URL}/api/tax/calculate`, { ...payload, profile: sanitizeProfilePayload(payload.profile) }),
+  compareRegimes: (payload: any, allowExpandedIncome = false) => apiClient.post(`${API_URL}/api/tax/compare-regimes`, sanitizeProfilePayload(payload), { params: { allow_expanded_income: allowExpandedIncome } }),
+};
+
+export const whatIfAPI = {
+  simulate: (changes: Array<{ field: string; operation: string; value: unknown; index?: number }>, baseProfileId?: string) =>
+    apiClient.post(`${API_V1_URL}/what-if/simulate`, { base_profile_id: baseProfileId, changes }),
+  apply: (changes: Array<{ field: string; operation: string; value: unknown; index?: number }>, baseProfileId: string) =>
+    apiClient.post(`${API_V1_URL}/what-if/apply`, { base_profile_id: baseProfileId, changes, confirm: true }),
+};
+
+export const deductionsAPI = {
+  discover: (regime: 'old' | 'new' = 'old') => apiClient.get(`${API_V1_URL}/deductions/discovery`, { params: { regime } }),
+  summary: (regime: 'old' | 'new' = 'old') => apiClient.get(`${API_V1_URL}/deductions/summary`, { params: { regime } }),
 };
 
 export const itrAPI = {

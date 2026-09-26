@@ -1,4 +1,4 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 
 from schemas.tax_profile import TaxProfileCreate
 from tax_engine.calculator import calculate_tax, compare_regimes
@@ -13,5 +13,5 @@ def calculate_tax_endpoint(request: TaxCalculationInput) -> TaxCalculationResult
 
 
 @router.post("/compare-regimes", response_model=RegimeComparison)
-def compare_regimes_endpoint(profile: TaxProfileCreate) -> RegimeComparison:
-    return compare_regimes(profile)
+def compare_regimes_endpoint(profile: TaxProfileCreate, allow_expanded_income: bool = Query(default=False)) -> RegimeComparison:
+    return compare_regimes(profile, allow_expanded_income=allow_expanded_income)

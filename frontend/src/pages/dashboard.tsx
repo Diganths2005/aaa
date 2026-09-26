@@ -10,6 +10,7 @@ type UserDocument = {
   original_filename: string;
   status: string;
   created_at?: string;
+  processing_result?: { candidates?: Array<{ field: string; value: string }> };
 };
 
 const navItems = [
@@ -25,7 +26,8 @@ const navItems = [
 
 const DashboardPage: React.FC = () => {
   const router = useRouter();
-  const { user, isAuthenticated, logout } = useAuthStore();
+  const { user, isAuthenticated, hydrate, logout } = useAuthStore();
+  const [authHydrated, setAuthHydrated] = useState(false);
   const [documents, setDocuments] = useState<UserDocument[]>([]);
   const [documentMessage, setDocumentMessage] = useState('');
   const [itrMessage, setItrMessage] = useState('');
@@ -33,8 +35,15 @@ const DashboardPage: React.FC = () => {
   const [profileReady, setProfileReady] = useState<boolean | null>(null);
   const [profile, setProfile] = useState<any>(null);
   const [comparison, setComparison] = useState<any>(null);
+  const [itrSelection, setItrSelection] = useState<any>(null);
 
   useEffect(() => {
+    hydrate();
+    setAuthHydrated(true);
+  }, [hydrate]);
+
+  useEffect(() => {
+    if (!authHydrated) return;
     if (!isAuthenticated) {
       router.push('/login');
       return;
@@ -44,8 +53,10 @@ const DashboardPage: React.FC = () => {
       try {
         const response = await taxProfileAPI.getCurrentUser();
         setProfile(response.data);
-        const comparisonResponse = await taxAPI.compareRegimes(response.data);
+        const comparisonResponse = await taxAPI.compareRegimes(response.data, true);
         setComparison(comparisonResponse.data);
+        const itrResponse = await itrAPI.selection();
+        setItrSelection(itrResponse.data);
         setProfileReady(true);
       } catch {
         setProfileReady(false);
@@ -54,21 +65,21 @@ const DashboardPage: React.FC = () => {
     };
 
     loadProfile();
-  }, [isAuthenticated, router]);
+  }, [authHydrated, isAuthenticated, router]);
 
   useEffect(() => {
-    if (isAuthenticated) {
+    if (authHydrated && isAuthenticated) {
       documentsAPI.list().then((response) => setDocuments(response.data)).catch(() => undefined);
     }
-  }, [isAuthenticated]);
+  }, [authHydrated, isAuthenticated]);
 
-  if (!isAuthenticated) {
-    return null;
-  }
-
-  const formatCurrency = (amount: number) => `₹${(amount || 0).toLocaleString('en-IN')}`;
+  const formatCurrency = (amount: number | string | undefined) => `₹${Number(amount || 0).toLocaleString('en-IN')}`;
 
   const recommendedResult = comparison?.recommended_regime === 'old' ? comparison.old_regime : comparison?.new_regime;
+  const confirmedDeductions = useMemo(
+    () => (profile?.deductions || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0),
+    [profile]
+  );
 
   const incomeBreakdown = useMemo(() => {
     if (!profile) return [] as Array<{ name: string; amount: number; percent: number }>;
@@ -91,24 +102,112 @@ const DashboardPage: React.FC = () => {
   }, [profile]);
 
   const metrics = [
-    { label: 'Gross Total Income', value: formatCurrency(recommendedResult?.gross_total_income), change: 'Tax Engine result' },
-    { label: 'Total Deductions', value: formatCurrency(recommendedResult?.total_deductions), change: 'Tax Engine result' },
-    { label: 'Taxable Income', value: formatCurrency(recommendedResult?.taxable_income), change: 'Tax Engine result' },
+    { label: 'Gross Total Income', value: formatCurrency(recommendedResult?.gross_total_income), change: 'Current calculation' },
+    { label: 'Total Deductions', value: formatCurrency(confirmedDeductions), change: 'Confirmed profile deductions' },
+    { label: 'Taxable Income', value: formatCurrency(recommendedResult?.taxable_income), change: 'Current calculation' },
     { label: 'Estimated Tax', value: formatCurrency(recommendedResult?.total_tax_liability), change: `${comparison?.recommended_regime || 'new'} regime` },
-    { label: 'Taxes Paid', value: formatCurrency(recommendedResult?.total_tax_paid), change: 'Tax Engine result' },
+    { label: 'Taxes Paid', value: formatCurrency(recommendedResult?.total_tax_paid), change: 'Current calculation' },
     { label: 'Refund / Payable', value: recommendedResult?.refund > 0 ? formatCurrency(recommendedResult.refund) : formatCurrency(recommendedResult?.balance_payable), change: recommendedResult?.refund > 0 ? 'Refund' : 'Payable' },
   ];
 
-  const insights = profile
-    ? [
-        'Your dashboard is based on the tax profile you confirmed.',
-        'Review documents and deductions to keep your tax profile accurate.',
-        'Use the tax profile builder if you need to add or correct information.',
-      ]
-    : [
+  const insights = useMemo(() => {
+    if (!profile) {
+      return [
         'Your profile has not been confirmed yet. Complete onboarding to unlock the dashboard.',
         'You can upload your documents or enter your information manually.',
       ];
+    }
+
+    const salary = (profile.salary_income || []).reduce((sum: number, item: any) => sum + Number(item.gross_salary || 0), 0);
+    const deductions = (profile.deductions || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0);
+    const items = [
+      `Your tax profile currently reflects ₹${salary.toLocaleString('en-IN')} in salary income across ${profile.salary_income?.length || 0} source entries.`,
+      `Confirmed deductions total ₹${deductions.toLocaleString('en-IN')}. Review them if you want to maximize eligible savings.`,
+    ];
+
+    if (comparison) {
+      const regimeLabel = comparison.recommended_regime === 'old' ? 'Old Regime' : comparison.recommended_regime === 'new' ? 'New Regime' : 'Both regimes are effectively similar';
+      const estimatedSaving = Number(comparison.estimated_saving || 0);
+      items.push(
+        `${regimeLabel} is recommended for AY ${profile.assessment_year || '2026-27'} with an estimated saving of ₹${estimatedSaving.toLocaleString('en-IN')}.`
+      );
+    }
+
+    if (documents.length === 0) {
+      items.push('No documents are uploaded yet. Add a PDF to improve document intelligence and filing confidence.');
+    }
+
+    return items;
+  }, [comparison, documents.length, profile]);
+
+  const handleLogout = () => {
+    logout();
+    router.push('/login');
+  };
+
+  const handleDocumentSelection = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    const supported = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xlsm');
+    if (!supported) {
+      setDocumentMessage('Please choose a PDF or Excel document.');
+      return;
+    }
+
+    try {
+      const uploaded = await documentsAPI.upload(file, '2026-27');
+      const processed = await documentsAPI.process(uploaded.data.id);
+      setDocuments((current) => [{ ...uploaded.data, status: processed.data.status }, ...current]);
+      setDocumentMessage(processed.data.candidates?.length ? 'Document processed. Open Documents to review extracted values before confirmation.' : 'Document processed, but no supported tax fields were found.');
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      setDocumentMessage(detail === 'DOCUMENT_REQUIRES_OCR' ? 'This PDF is scanned and needs OCR, which is not available yet.' : 'Document processing failed. No profile data was changed.');
+    }
+  };
+
+  const handleFileItr = async () => {
+    setCheckingItr(true);
+    setItrMessage("Let's check your ITR eligibility.");
+    try {
+      const response = await itrAPI.selection();
+      if (response.data.eligible && response.data.recommended_itr) {
+        setItrMessage(`Based on your current Tax Profile, ${response.data.recommended_itr} is recommended.`);
+      } else {
+        const reasons = [...(response.data.reasons || []), ...(response.data.missing_information || []), ...(response.data.unsupported_conditions || [])];
+        setItrMessage(`An ITR form is not ready yet. ${reasons.join(' ')}`);
+      }
+    } catch (error: any) {
+      setItrMessage(error.response?.data?.detail || 'Complete and save your Tax Profile before preparing a return.');
+    } finally {
+      setCheckingItr(false);
+    }
+  };
+
+  const nextSteps = useMemo(() => {
+    const items = [
+      { label: 'Review tax profile', href: '/tax-profile', enabled: !!profile },
+      { label: 'Upload documents', href: '/documents', enabled: true },
+      { label: 'Compare regimes', href: '/compare-regimes', enabled: !!comparison },
+      { label: 'Run what-if simulation', href: '/what-if', enabled: !!profile },
+      { label: 'Ask TaxWise', href: '/taxwise', enabled: true },
+      { label: 'Review ITR', href: '/itr-preview', enabled: !!profile },
+    ];
+
+    return items;
+  }, [comparison, profile]);
+
+  const journey = useMemo(() => {
+    const completed = [
+      { label: 'Profile', done: !!profile, detail: profile ? 'Information confirmed' : 'Needs attention' },
+      { label: 'Documents', done: documents.length > 0, detail: documents.length ? `${documents.length} uploaded` : 'Upload a PDF' },
+      { label: 'Tax calc', done: !!comparison, detail: comparison ? 'Ready' : 'Pending' },
+      { label: 'Deductions', done: !!profile && (profile.deductions?.length || 0) > 0, detail: profile && (profile.deductions?.length || 0) > 0 ? 'Review available' : 'Check eligibility' },
+      { label: 'ITR', done: !!itrSelection?.eligible, detail: itrSelection?.recommended_itr || (profile ? 'Review needed' : 'Not started') },
+    ];
+
+    return completed;
+  }, [comparison, documents.length, itrSelection, profile]);
 
   if (profileReady === false) {
     return (
@@ -131,57 +230,9 @@ const DashboardPage: React.FC = () => {
     );
   }
 
-  const handleLogout = () => {
-    logout();
-    router.push('/login');
-  };
-
-  const handleDocumentSelection = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    if (file.type !== 'application/pdf') {
-      setDocumentMessage('Please choose a PDF document.');
-      return;
-    }
-
-    try {
-      const uploaded = await documentsAPI.upload(file, '2026-27');
-      const processed = await documentsAPI.process(uploaded.data.id);
-      setDocuments((current) => [{ ...uploaded.data, status: processed.data.status }, ...current]);
-      setDocumentMessage(processed.data.candidates?.length ? 'Document processed. Open Documents to review extracted values before confirmation.' : 'Document processed, but no supported tax fields were found.');
-    } catch (error: any) {
-      const detail = error.response?.data?.detail;
-      setDocumentMessage(detail === 'DOCUMENT_REQUIRES_OCR' ? 'This PDF is scanned and needs OCR, which is not available yet.' : 'Document processing failed. No profile data was changed.');
-    }
-  };
-
-  const handleFileItr = async () => {
-    setCheckingItr(true);
-    setItrMessage("Let's check your ITR eligibility.");
-    try {
-      const response = await itrAPI.eligibility();
-      if (response.data.eligible) {
-        setItrMessage('Based on your current Tax Profile, ITR-1 can be prepared.');
-      } else {
-        setItrMessage(`ITR-1 cannot currently be prepared because ${response.data.reasons.join(' ')}`);
-      }
-    } catch (error: any) {
-      setItrMessage(error.response?.data?.detail || 'Complete and save your Tax Profile before preparing ITR-1.');
-    } finally {
-      setCheckingItr(false);
-    }
-  };
-
-  const nextSteps = [
-    'Review extracted document',
-    'Review tax opportunities',
-    'Compare regimes',
-    'Run what-if simulation',
-    'Resolve detected issue',
-    'Complete Tax Profile',
-    'Review ITR',
-  ];
+  if (!authHydrated || !isAuthenticated) {
+    return null;
+  }
 
   return (
     <div className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
@@ -220,13 +271,44 @@ const DashboardPage: React.FC = () => {
           <div className="mb-6 flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Good morning, {user?.firstName || 'Taxpayer'}</p>
-              <h1 className="mt-2 text-3xl font-bold text-[#0F172A]">Here&apos;s your current tax picture.</h1>
+              <h1 className="mt-2 text-3xl font-bold text-[#0F172A]">Your tax journey is ready.</h1>
             </div>
             <div className="flex items-center gap-3">
-              <button className="chip">AI summary ready</button>
+              <button className="chip">{profile ? 'Profile synced' : 'Profile pending'}</button>
               <Link href="/taxwise" className="rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#065F46]">Ask TaxWise</Link>
             </div>
           </div>
+
+          <div className="mb-6 rounded-[24px] border border-[#E2E8F0] bg-white p-4 shadow-soft">
+            <div className="mb-4 flex items-center justify-between gap-3">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Journey progress</p>
+              <span className="text-xs font-medium text-[#64748B]">{journey.filter((step) => step.done).length}/{journey.length} done</span>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              {journey.map((step) => (
+                <div key={step.label} className={`rounded-2xl border p-3 ${step.done ? 'border-[#C7F9D9] bg-[#ECFDF5]' : 'border-[#E2E8F0] bg-[#F8FAFC]'}`}>
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-semibold uppercase tracking-[0.16em] text-[#64748B]">{step.label}</span>
+                    <span className={`h-2.5 w-2.5 rounded-full ${step.done ? 'bg-[#047857]' : 'bg-[#CBD5E1]'}`} />
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-[#0F172A]">{step.detail}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {profile && (
+            <div className="mb-6 grid gap-4 sm:grid-cols-2">
+              <div className="card p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#047857]">Date of birth</p>
+                <p className="mt-3 text-lg font-semibold text-[#0F172A]">{profile.date_of_birth || 'Not provided'}</p>
+              </div>
+              <div className="card p-5">
+                <p className="text-xs font-semibold uppercase tracking-[0.18em] text-[#047857]">PAN number</p>
+                <p className="mt-3 text-lg font-semibold uppercase text-[#0F172A]">{profile.pan_number || 'Not provided'}</p>
+              </div>
+            </div>
+          )}
 
           {!profile && (
             <div className="mb-6 rounded-2xl border border-[#E2E8F0] bg-[#ECFDF5] p-4 text-sm text-[#047857]">
@@ -280,10 +362,23 @@ const DashboardPage: React.FC = () => {
                 <h2 className="mt-2 text-xl font-bold text-[#0F172A]">Smart actions</h2>
                 <div className="mt-5 space-y-3">
                   {nextSteps.map((step) => (
-                    <button key={step} className="flex w-full items-center justify-between rounded-2xl border border-border bg-white px-4 py-3 text-left text-sm font-medium text-[#0F172A] hover:border-[#10B981] hover:bg-[#ECFDF5]">
-                      <span>{step}</span>
-                      <span className="text-[#64748B]">→</span>
-                    </button>
+                    <Link
+                      key={step.label}
+                      href={step.enabled ? step.href : '#'}
+                      onClick={(event) => {
+                        if (!step.enabled) {
+                          event.preventDefault();
+                        }
+                      }}
+                      className={`flex w-full items-center justify-between rounded-2xl border px-4 py-3 text-left text-sm font-medium transition ${
+                        step.enabled
+                          ? 'border-border bg-white text-[#0F172A] hover:border-[#10B981] hover:bg-[#ECFDF5]'
+                          : 'cursor-not-allowed border-dashed border-[#CBD5E1] bg-[#F8FAFC] text-[#94A3B8]'
+                      }`}
+                    >
+                      <span>{step.label}</span>
+                      <span className="text-[#64748B]">{step.enabled ? '→' : '•'}</span>
+                    </Link>
                   ))}
                 </div>
               </div>
@@ -316,20 +411,49 @@ const DashboardPage: React.FC = () => {
               <div className="card p-6">
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Regime comparison</p>
                 <div className="mt-6 space-y-4">
-                  <div className="flex items-center justify-between rounded-2xl bg-[#F8FAFC] p-4">
-                    <div>
-                      <p className="text-sm text-[#64748B]">Old Regime</p>
-                      <p className="text-xl font-bold text-[#0F172A]">Awaiting calculation</p>
-                    </div>
-                    <span className="chip">Pending</span>
-                  </div>
-                  <div className="flex items-center justify-between rounded-2xl bg-[#ECFDF5] p-4">
-                    <div>
-                      <p className="text-sm text-[#64748B]">New Regime</p>
-                      <p className="text-xl font-bold text-[#0F172A]">Awaiting calculation</p>
-                    </div>
-                    <span className="chip">Pending</span>
-                  </div>
+                  {comparison ? (
+                    <>
+                      {[
+                        {
+                          label: 'Old Regime',
+                          amount: formatCurrency(comparison.old_regime.total_tax_liability),
+                          tone: comparison.recommended_regime === 'old' ? 'bg-[#ECFDF5]' : 'bg-[#F8FAFC]',
+                          badge: comparison.recommended_regime === 'old' ? 'Recommended' : 'Alternative',
+                        },
+                        {
+                          label: 'New Regime',
+                          amount: formatCurrency(comparison.new_regime.total_tax_liability),
+                          tone: comparison.recommended_regime === 'new' ? 'bg-[#ECFDF5]' : 'bg-[#F8FAFC]',
+                          badge: comparison.recommended_regime === 'new' ? 'Recommended' : 'Alternative',
+                        },
+                      ].map((regime) => (
+                        <div key={regime.label} className={`flex items-center justify-between rounded-2xl p-4 ${regime.tone}`}>
+                          <div>
+                            <p className="text-sm text-[#64748B]">{regime.label}</p>
+                            <p className="text-xl font-bold text-[#0F172A]">{regime.amount}</p>
+                          </div>
+                          <span className="chip">{regime.badge}</span>
+                        </div>
+                      ))}
+                    </>
+                  ) : (
+                    <>
+                      <div className="flex items-center justify-between rounded-2xl bg-[#F8FAFC] p-4">
+                        <div>
+                          <p className="text-sm text-[#64748B]">Old Regime</p>
+                          <p className="text-xl font-bold text-[#0F172A]">Complete your tax profile</p>
+                        </div>
+                        <span className="chip">Pending</span>
+                      </div>
+                      <div className="flex items-center justify-between rounded-2xl bg-[#F8FAFC] p-4">
+                        <div>
+                          <p className="text-sm text-[#64748B]">New Regime</p>
+                          <p className="text-xl font-bold text-[#0F172A]">Complete your tax profile</p>
+                        </div>
+                        <span className="chip">Pending</span>
+                      </div>
+                    </>
+                  )}
                 </div>
               </div>
             </div>
@@ -342,8 +466,8 @@ const DashboardPage: React.FC = () => {
                 <h3 id="documents-heading" className="mt-2 text-xl font-bold text-[#0F172A]">My documents</h3>
               </div>
               <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#065F46]">
-                <span>Upload PDF</span>
-                <input type="file" accept="application/pdf" className="sr-only" onChange={handleDocumentSelection} />
+                <span>Upload PDF or Excel</span>
+                <input type="file" accept="application/pdf,.xlsx,.xlsm" className="sr-only" onChange={handleDocumentSelection} />
               </label>
             </div>
 
@@ -352,15 +476,24 @@ const DashboardPage: React.FC = () => {
             {documents.length > 0 ? (
               <ul className="mt-5 space-y-3">
                 {documents.map((document) => (
-                  <li key={document.id} className="flex items-center justify-between rounded-2xl border border-border bg-[#F8FAFC] px-4 py-3 text-sm">
-                    <span className="font-medium text-[#0F172A]">{document.original_filename}</span>
-                    <span className="text-[#64748B]">{document.status}</span>
+                  <li key={document.id} className="rounded-2xl border border-border bg-[#F8FAFC] px-4 py-3 text-sm">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className="font-medium text-[#0F172A]">{document.original_filename}</span>
+                      <span className="text-[#64748B]">{document.status}</span>
+                    </div>
+                    {document.processing_result?.candidates?.length ? (
+                      <div className="mt-3 grid gap-1 border-t border-border pt-3 text-xs text-[#475569] sm:grid-cols-2">
+                        {document.processing_result.candidates.map((candidate, index) => (
+                          <span key={`${candidate.field}-${index}`}><strong>{candidate.field.replace(/_/g, ' ')}:</strong> {candidate.value}</span>
+                        ))}
+                      </div>
+                    ) : null}
                   </li>
                 ))}
               </ul>
             ) : (
               <div className="mt-5 rounded-2xl border border-dashed border-border bg-[#F8FAFC] p-8 text-center text-sm text-[#64748B]">
-                No documents uploaded yet. Upload a PDF for tax document intelligence and review.
+                No documents uploaded yet. Upload a PDF or Excel sheet for tax document intelligence and review.
               </div>
             )}
 
@@ -378,6 +511,21 @@ const DashboardPage: React.FC = () => {
           </section>
         </main>
       </div>
+
+      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#E2E8F0] bg-white/95 px-2 py-2 backdrop-blur sm:hidden">
+        <div className="flex items-center justify-around gap-1">
+          {navItems.slice(0, 5).map((item) => (
+            <Link
+              key={item.label}
+              href={item.href}
+              className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium ${item.active ? 'bg-[#ECFDF5] text-[#047857]' : 'text-[#64748B]'}`}
+            >
+              <span>{item.icon}</span>
+              <span className="truncate">{item.label === 'My Tax Profile' ? 'Profile' : item.label}</span>
+            </Link>
+          ))}
+        </div>
+      </nav>
     </div>
   );
 };

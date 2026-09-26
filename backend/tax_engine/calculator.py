@@ -100,9 +100,9 @@ def calculate_tax(profile: TaxProfileCreate, regime: str, allow_expanded_income:
     )
 
 
-def compare_regimes(profile: TaxProfileCreate) -> RegimeComparison:
-    old_result = calculate_tax(profile, "old")
-    new_result = calculate_tax(profile, "new")
+def compare_regimes(profile: TaxProfileCreate, allow_expanded_income: bool = False) -> RegimeComparison:
+    old_result = calculate_tax(profile, "old", allow_expanded_income=allow_expanded_income)
+    new_result = calculate_tax(profile, "new", allow_expanded_income=allow_expanded_income)
     difference = old_result.total_tax_liability - new_result.total_tax_liability
     if difference == ZERO:
         recommended = "equal"

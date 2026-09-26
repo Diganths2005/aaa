@@ -1,20 +1,24 @@
 import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
+import Link from 'next/link';
 import { documentsAPI, onboardingAPI } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import ReturnToDashboard from '@/components/ReturnToDashboard';
 
 type DocumentItem = {
   id: string;
   document_type: string;
   original_filename: string;
   status: string;
+  processing_result?: { candidates?: Candidate[]; onboarding_values?: Record<string, unknown> };
 };
 
 type Candidate = { field: string; value: string; page?: number };
 
 const DocumentsPage: React.FC = () => {
   const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
+  const { isAuthenticated, hydrate } = useAuthStore();
+  const [authHydrated, setAuthHydrated] = useState(false);
   const [documents, setDocuments] = useState<DocumentItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [message, setMessage] = useState('');
@@ -23,6 +27,12 @@ const DocumentsPage: React.FC = () => {
   const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
+    hydrate();
+    setAuthHydrated(true);
+  }, [hydrate]);
+
+  useEffect(() => {
+    if (!authHydrated) return;
     if (!isAuthenticated) {
       router.push('/login');
       return;
@@ -31,7 +41,18 @@ const DocumentsPage: React.FC = () => {
     const load = async () => {
       try {
         const response = await documentsAPI.list();
-        setDocuments(response.data || []);
+        const loadedDocuments = response.data || [];
+        setDocuments(loadedDocuments);
+        const pending = loadedDocuments.find(
+          (document: DocumentItem) => document.status === 'REQUIRES_CONFIRMATION' && document.processing_result?.candidates?.length
+        );
+        if (pending?.processing_result?.candidates) {
+          setPendingDocument({
+            id: pending.id,
+            candidates: pending.processing_result.candidates,
+            values: pending.processing_result.onboarding_values || {},
+          });
+        }
       } catch {
         setMessage('TaxWise could not load your documents right now.');
       } finally {
@@ -40,7 +61,7 @@ const DocumentsPage: React.FC = () => {
     };
 
     load();
-  }, [isAuthenticated, router]);
+  }, [authHydrated, isAuthenticated, router]);
 
   const handleUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -71,8 +92,9 @@ const DocumentsPage: React.FC = () => {
       await onboardingAPI.confirm(action);
       setMessage(action === 'confirm' ? 'Confirmed values were added to your Tax Profile.' : 'Document values were rejected. Your Tax Profile was not changed.');
       setPendingDocument(null);
-    } catch {
-      setMessage('TaxWise could not complete the document review.');
+    } catch (error: any) {
+      const detail = error.response?.data?.detail;
+      setMessage(detail ? `TaxWise could not complete the document review: ${detail}` : 'TaxWise could not complete the document review.');
     }
   };
 
@@ -90,7 +112,7 @@ const DocumentsPage: React.FC = () => {
     }
   };
 
-  if (!isAuthenticated) {
+  if (!authHydrated || !isAuthenticated) {
     return null;
   }
 
@@ -102,14 +124,29 @@ const DocumentsPage: React.FC = () => {
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Documents</p>
             <h1 className="mt-2 text-3xl font-bold text-[#0F172A]">Document intelligence</h1>
           </div>
-          <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#065F46]">
-            <span>{processing ? 'Processing...' : 'Upload PDF'}</span>
-            <input type="file" accept="application/pdf" className="sr-only" onChange={handleUpload} disabled={processing} />
-          </label>
+          <div className="flex flex-wrap gap-3">
+            <ReturnToDashboard />
+            <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#065F46]">
+              <span>{processing ? 'Processing...' : 'Upload PDF or Excel'}</span>
+              <input type="file" accept="application/pdf,.xlsx,.xlsm" className="sr-only" onChange={handleUpload} disabled={processing} />
+            </label>
+          </div>
         </header>
 
         <div className="card p-6">
           <p className="text-base text-[#64748B]">TaxWise extracted this information from your document. Please confirm it before it becomes part of your tax profile.</p>
+        </div>
+
+        <div className="mt-6 card p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Excel templates</p>
+          <p className="mt-2 text-sm text-[#64748B]">Download a template, replace the sample values, save it, and upload it here.</p>
+          <div className="mt-4 flex flex-wrap gap-3">
+            {(['ITR1', 'ITR2', 'ITR3'] as const).map((form) => (
+              <a key={form} href={`/templates/TaxWise_${form}_Template.xlsx`} download className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-semibold text-[#334155] hover:bg-[#F1F5F9]">
+                Download {form} template
+              </a>
+            ))}
+          </div>
         </div>
 
         {message && <div className="mt-6 rounded-2xl border border-[#E2E8F0] bg-[#ECFDF5] p-4 text-sm text-[#047857]">{message}</div>}
@@ -140,6 +177,13 @@ const DocumentsPage: React.FC = () => {
                   <div>
                     <p className="font-semibold text-[#0F172A]">{document.original_filename}</p>
                     <p className="mt-1 text-sm text-[#64748B]">{document.document_type}</p>
+                    {document.processing_result?.candidates?.length ? (
+                      <div className="mt-3 grid gap-1 text-xs text-[#475569] sm:grid-cols-2">
+                        {document.processing_result.candidates.map((candidate, index) => (
+                          <span key={`${candidate.field}-${index}`}><strong>{candidate.field.replace(/_/g, ' ')}:</strong> {candidate.value}</span>
+                        ))}
+                      </div>
+                    ) : null}
                   </div>
                   <div className="flex items-center gap-2">
                     <span className="chip">{document.status}</span>

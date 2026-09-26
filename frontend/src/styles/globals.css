@@ -31,12 +31,19 @@ body {
   box-sizing: border-box;
 }
 
-input, textarea, select, button {
+input, textarea, select, button, a {
   @apply transition-all duration-200;
 }
 
 input, textarea, select {
   @apply focus:outline-none focus:ring-2 focus:ring-accent/60 focus:border-accent;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-white;
 }
 
 .card {
@@ -57,4 +64,10 @@ input, textarea, select {
 
 .chip {
   @apply inline-flex items-center rounded-full border border-border bg-mint px-2.5 py-1 text-xs font-medium text-primary;
+}
+
+@media (max-width: 640px) {
+  .card {
+    @apply rounded-2xl;
+  }
 }

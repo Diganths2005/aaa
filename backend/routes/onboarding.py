@@ -118,9 +118,16 @@ def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], cur
         current_user.last_name = name_parts[1] if len(name_parts) > 1 else ""
     merged = {**existing, **profile_candidate}
     if "salary_tds" in merged:
-        salary = deepcopy(merged.get("salary_income", [{}])[0])
-        salary["tds"] = merged.pop("salary_tds")
-        merged["salary_income"] = [salary]
+        salary_income = list(merged.get("salary_income") or [])
+        salary_tds = merged.pop("salary_tds")
+        if salary_income:
+            salary = deepcopy(salary_income[0])
+            salary["tds"] = salary_tds
+            merged["salary_income"] = [salary, *salary_income[1:]]
+        else:
+            taxes_paid = merged.setdefault("taxes_paid", [])
+            if not any(item.get("tax_type") == "tds" and item.get("amount") == salary_tds for item in taxes_paid):
+                taxes_paid.append({"tax_type": "tds", "amount": salary_tds})
     merged.pop("id", None)
     merged.pop("user_id", None)
     try:

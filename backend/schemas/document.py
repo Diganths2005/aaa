@@ -18,6 +18,8 @@ DocumentType = Literal[
 
 DocumentStatus = Literal["UPLOADED", "PROCESSING", "PROCESSED", "REQUIRES_CONFIRMATION", "CONFIRMED", "FAILED", "DELETED", "pending"]
 
+SUPPORTED_DOCUMENT_EXTENSIONS = (".pdf", ".xlsx", ".xlsm")
+
 
 class DocumentCreate(BaseModel):
     document_type: DocumentType

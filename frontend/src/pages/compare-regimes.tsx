@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { taxAPI, taxProfileAPI } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import ReturnToDashboard from '@/components/ReturnToDashboard';
 
 type RegimeMetrics = {
   taxable_income: number;
@@ -38,7 +39,7 @@ const CompareRegimesPage: React.FC = () => {
       try {
         setLoading(true);
         const profileResponse = await taxProfileAPI.getCurrentUser();
-        const result = await taxAPI.compareRegimes(profileResponse.data);
+        const result = await taxAPI.compareRegimes(profileResponse.data, true);
         setComparison({
           recommended_regime: result.data.recommended_regime,
           estimated_saving: Number(result.data.estimated_saving || 0),
@@ -97,7 +98,10 @@ const CompareRegimesPage: React.FC = () => {
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Compare Regimes</p>
             <h1 className="mt-2 text-3xl font-bold text-[#0F172A]">Old vs New regime</h1>
           </div>
-          <Link href="/taxwise" className="rounded-xl border border-border bg-white px-4 py-2 text-sm font-semibold text-[#0F172A] hover:bg-[#F8FAFC]">Ask TaxWise why</Link>
+          <div className="flex flex-wrap gap-3">
+            <ReturnToDashboard />
+            <Link href="/taxwise" className="rounded-xl border border-border bg-white px-4 py-2 text-sm font-semibold text-[#0F172A] hover:bg-[#F8FAFC]">Ask TaxWise why</Link>
+          </div>
         </header>
 
         {loading ? (
@@ -159,7 +163,7 @@ const CompareRegimesPage: React.FC = () => {
               </div>
               <div className="card p-5">
                 <p className="text-sm text-[#64748B]">Tax source</p>
-                <p className="mt-2 text-base font-semibold text-[#0F172A]">Deterministic Tax Engine</p>
+                <p className="mt-2 text-base font-semibold text-[#0F172A]">Based on your confirmed numbers</p>
               </div>
               <div className="card p-5">
                 <p className="text-sm text-[#64748B]">Status</p>

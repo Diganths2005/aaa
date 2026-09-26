@@ -3,11 +3,12 @@ import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
 import { chatAPI } from '@/lib/api';
+import ReturnToDashboard from '@/components/ReturnToDashboard';
 
 type Message = {
   role: 'user' | 'assistant';
   text: string;
-  sources?: string[];
+  retryMessage?: string;
 };
 
 const suggestedPrompts = [
@@ -26,7 +27,6 @@ const TaxWisePage: React.FC = () => {
     {
       role: 'assistant',
       text: 'I’m TaxWise, your personal tax assistant. I can help with Indian income tax, deductions, tax documents, and filing readiness. Ask me about your tax profile or a tax scenario.',
-      sources: ['TaxWise assistant'],
     },
   ]);
   const [input, setInput] = useState('');
@@ -58,7 +58,6 @@ const TaxWisePage: React.FC = () => {
         {
           role: 'assistant',
           text: payload.answer,
-          sources: payload.mode === 'fallback' ? [...(payload.sources ?? []), 'AI provider unavailable; deterministic fallback'] : payload.sources ?? [],
         },
       ]);
     } catch {
@@ -66,8 +65,8 @@ const TaxWisePage: React.FC = () => {
         ...current,
         {
           role: 'assistant',
-          text: 'TaxWise is temporarily unable to respond. Please try again.',
-          sources: ['System'],
+          text: 'TaxWise could not reach the assistant service. Your previous messages are safe. Try the question again.',
+          retryMessage: message,
         },
       ]);
     } finally {
@@ -83,7 +82,7 @@ const TaxWisePage: React.FC = () => {
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">TaxWise</p>
             <h1 className="mt-2 text-3xl font-bold text-[#0F172A]">Your personal tax assistant</h1>
           </div>
-          <Link href="/dashboard" className="rounded-xl border border-border bg-white px-4 py-2 text-sm font-semibold text-[#0F172A] hover:bg-[#F8FAFC]">Back to dashboard</Link>
+          <ReturnToDashboard />
         </header>
 
         <div className="grid gap-6 xl:grid-cols-[0.9fr_1.6fr]">
@@ -126,14 +125,13 @@ const TaxWisePage: React.FC = () => {
                   <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${message.role === 'user' ? 'bg-[#064E3B] text-white' : 'border border-border bg-[#F8FAFC] text-[#0F172A]'}`}>
                       <p className="whitespace-pre-wrap text-sm leading-6">{message.text}</p>
-                      {message.sources && message.sources.length > 0 && (
-                        <div className="mt-3 flex flex-wrap gap-2">
-                          {message.sources.map((source) => (
-                            <span key={source} className={`rounded-full px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.12em] ${message.role === 'user' ? 'bg-white/10 text-white' : 'bg-white text-[#047857]'}`}>
-                              {source}
-                            </span>
-                          ))}
-                        </div>
+                      {message.retryMessage && (
+                        <button
+                          onClick={() => handleSend(message.retryMessage)}
+                          className="mt-3 text-xs font-semibold text-[#047857] underline underline-offset-2 hover:text-[#065F46]"
+                        >
+                          Try again
+                        </button>
                       )}
                     </div>
                   </div>

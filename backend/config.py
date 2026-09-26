@@ -24,6 +24,9 @@ PROJECT_VERSION = "0.1.0"
 
 # AI provider configuration (server-side only)
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+GITHUB_MODELS_TOKENS = [token.strip() for token in os.getenv("GITHUB_MODELS_TOKENS", os.getenv("GITHUB_TOKEN", "")).split(",") if token.strip()]
+GITHUB_MODELS_MODEL = os.getenv("GITHUB_MODELS_MODEL", "openai/gpt-4o-mini")
+GITHUB_MODELS_URL = os.getenv("GITHUB_MODELS_URL", "https://models.github.ai/inference")

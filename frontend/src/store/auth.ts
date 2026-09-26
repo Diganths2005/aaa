@@ -5,10 +5,15 @@ import Cookies from 'js-cookie';
 
 export const useAuthStore = create<AuthStore>((set) => ({
   user: null,
-  token: Cookies.get('token') || null,
-  isAuthenticated: !!Cookies.get('token'),
+  token: null,
+  isAuthenticated: false,
   isLoading: false,
   error: null,
+
+  hydrate: () => {
+    const token = Cookies.get('token') || null;
+    set({ token, isAuthenticated: !!token });
+  },
 
   login: async (email: string, password: string) => {
     set({ isLoading: true, error: null });

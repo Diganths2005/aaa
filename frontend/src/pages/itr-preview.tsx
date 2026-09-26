@@ -3,6 +3,7 @@ import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { itrAPI } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
+import ReturnToDashboard from '@/components/ReturnToDashboard';
 
 type Preparation = any;
 const money = (value: any) => `₹${Number(value || 0).toLocaleString('en-IN')}`;
@@ -60,10 +61,13 @@ const ITRPreviewPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-100 px-4 py-6 lg:px-6">
       <div className="mx-auto max-w-7xl">
-        <header className="mb-6">
-          <p className="text-sm font-semibold uppercase tracking-wide text-primary">TaxWise</p>
-          <h1 className="mt-2 text-3xl font-bold text-gray-900">{preparation.itr_form || 'ITR-1'} Preparation</h1>
-          <p className="mt-1 text-gray-600">Assessment Year {preparation.assessment_year}</p>
+        <header className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <p className="text-sm font-semibold uppercase tracking-wide text-primary">TaxWise</p>
+            <h1 className="mt-2 text-3xl font-bold text-gray-900">{preparation.itr_form || 'ITR'} Preparation</h1>
+            <p className="mt-1 text-gray-600">Assessment Year {preparation.assessment_year}</p>
+          </div>
+          <ReturnToDashboard />
           {preparation.selection && <div className="mt-4 rounded-md bg-emerald-50 p-4 text-sm text-emerald-900"><p className="font-semibold">Why TaxWise selected this ITR</p><p className="mt-1">{preparation.selection.reasons?.join(' ')}</p>{preparation.selection.unsupported_conditions?.length > 0 && <p className="mt-1">Limitations: {preparation.selection.unsupported_conditions.join(' ')}</p>}</div>}
         </header>
 
@@ -78,7 +82,7 @@ const ITRPreviewPage: React.FC = () => {
             <div className="flex flex-wrap gap-3"><button type="button" onClick={recalculate} className="rounded-md bg-primary px-4 py-2 text-sm text-white">Recalculate</button><button type="button" onClick={downloadPdf} className="rounded-md border px-4 py-2 text-sm">Download preparation PDF</button><Link href="/dashboard" className="rounded-md border px-4 py-2 text-sm">Dashboard</Link></div>
           </main>
 
-          <aside className="rounded-lg bg-slate-900 p-5 text-white shadow"><h2 className="text-xl font-semibold">Ask about this result</h2><div className="mt-4 min-h-[280px] space-y-3 text-sm">{messages.map((item, index) => <p key={`${item}-${index}`} className="rounded bg-slate-800 p-3">{item}</p>)}</div><form onSubmit={ask} className="mt-4 flex gap-2"><input value={question} onChange={(event) => setQuestion(event.target.value)} className="min-w-0 flex-1 rounded px-3 py-2 text-slate-900" placeholder="Why is this amount shown?" /><button type="submit" className="rounded bg-cyan-400 px-3 py-2 text-sm font-semibold text-slate-900">Ask</button></form></aside>
+          <aside className="rounded-lg bg-slate-900 p-5 text-slate-100 shadow"><h2 className="text-xl font-semibold text-white">Ask about this result</h2><div className="mt-4 min-h-[280px] space-y-3 text-sm">{messages.map((item, index) => <p key={`${item}-${index}`} className="rounded bg-slate-800 p-3 text-slate-100">{item}</p>)}</div><form onSubmit={ask} className="mt-4 flex gap-2"><input value={question} onChange={(event) => setQuestion(event.target.value)} className="min-w-0 flex-1 rounded px-3 py-2 text-slate-900" placeholder="Why is this amount shown?" /><button type="submit" className="rounded bg-cyan-400 px-3 py-2 text-sm font-semibold text-slate-900">Ask</button></form></aside>
         </div>
       </div>
     </div>
