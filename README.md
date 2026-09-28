@@ -1,209 +1,84 @@
-# TaxWise - AI-Powered Tax Filing Application
+# TaxWise
 
-A modern web application for tax filing with an AI copilot to guide users through the entire ITR process.
+TaxWise is an AI-assisted tax-preparation application for supported Indian individual-tax scenarios. It combines a deterministic tax engine with a versioned structured tax knowledge base and document-assisted extraction. Numerical tax results come from the engine, not the language model.
 
-## Project Structure
+## Current Scope
 
-```
-taxwise/
-├── frontend/          # Next.js + TypeScript
-├── backend/           # FastAPI + Python
-└── docs/              # Documentation
-```
+- Tax-profile management and deterministic old/new regime calculations for AY 2026-27.
+- Supported salary, pension, house-property, other-income, deduction, tax-payment, and implemented capital-gain calculation scenarios. Business-income calculations are available only through the expanded calculation path and use user-entered net profit.
+- Chat explanations grounded in calculation results and retrieved assessment-year notes. Unsupported tax questions are declined when no matching knowledge is available.
+- PDF and Excel extraction into candidate fields. Candidates require explicit review and confirmation before they update the tax profile. Scanned-PDF OCR is attempted only when the Tesseract executable is installed.
+- General return-family selection with reasons and limitations. ITR-1 preparation and review PDF output are implemented; ITR-2, ITR-3, and ITR-4 preparation are not.
 
-## Stack
+The application does not submit returns, e-verify, connect to government or bank systems, or guarantee tax outcomes. Review profile data and current rules with a qualified professional before filing.
 
-- **Frontend**: Next.js 14, TypeScript, Tailwind CSS, Zustand
-- **Backend**: FastAPI, Python 3.10+, SQLalchemy, PostgreSQL
-- **Database**: PostgreSQL
-- **Cloud AI**: Google Gemini/Vertex AI (for future copilot integration)
+## Architecture
 
-## Features
-
-### Phase 1: Foundation (Current)
-- ✅ User Authentication (Login/Signup)
-- ✅ Dashboard
-- ✅ Tax Profile Creation for AY 2026-27
-- ✅ Six-step structured profile for future ITR-1, ITR-2, ITR-3 and ITR-4 preparation
-- ⏳ Data persistence
-
-### Phase 2: Tax Engine
-- Tax calculation engine
-- ITR preview generation
-- Form auto-filling
-
-### Phase 3: ITR Filing
-- ITR form generation
-- E-filing integration
-- Document management
-
-### Phase 4: AI Copilot
-- RAG-based support
-- Real-time guidance
-- Document processing
-
-## Getting Started
-
-### Prerequisites
-- Node.js 18+
-- Python 3.10+
-- PostgreSQL 14+
-- Git
-
-### Quick Start
-
-#### 1. Setup Database
-```bash
-# Install PostgreSQL or use Docker
-docker run -d \
-  --name postgres \
-  -e POSTGRES_USER=taxwise_user \
-  -e POSTGRES_PASSWORD=taxwise_password \
-  -e POSTGRES_DB=taxwise_db \
-  -p 5432:5432 \
-  postgres:15
+```mermaid
+flowchart TD
+    Taxpayer --> Web[Next.js / TypeScript]
+    Web --> API[FastAPI API]
+    API --> Engine[Deterministic Tax Engine]
+    Engine --> Calculation[Tax Calculation and Regime Comparison]
+    Calculation --> Selection[Return Selection]
+    Selection --> Prep[ITR-1 Preparation]
+    Prep --> PDF[Review PDF Output]
+    API --> Assistant[AI Assistant]
+    Assistant --> Facts[Verified Tax Calculation Facts]
+    Assistant --> Knowledge[Structured, Versioned Tax Knowledge Base]
+    Facts --> Explanation[Explanation]
+    Knowledge --> Explanation
+    Documents[PDF / Excel Documents] --> Extraction[Text and Field Extraction]
+    Extraction --> Review[User Review: Confirm or Reject]
+    Review --> Profile[Tax Profile]
+    Profile --> Engine
 ```
 
-#### 2. Frontend Setup
-```bash
+ITR-2/3/4 preparation, government filing, and expanded document understanding are future work; they are not shown as active flows.
+
+## Run Locally
+
+Prerequisites: Python 3.10+, Node.js 18+, and PostgreSQL (or the provided Docker Compose setup).
+
+Backend:
+
+```powershell
+cd backend
+python -m venv .venv
+.\.venv\Scripts\Activate.ps1
+pip install -r requirements.txt
+python main.py
+```
+
+Frontend, in another terminal:
+
+```powershell
 cd frontend
 npm install
 npm run dev
-# Frontend runs on http://localhost:3000
 ```
 
-#### 3. Backend Setup
-```bash
+The frontend runs at `http://localhost:3000`; the API and OpenAPI page run at `http://localhost:8000` and `http://localhost:8000/docs`. Configure `DATABASE_URL`, `SECRET_KEY`, `ALLOWED_ORIGINS`, and optionally `GITHUB_MODELS_TOKENS` in the backend environment. Without a model provider, verified deterministic answers and local knowledge excerpts remain available.
+
+## Validation
+
+```powershell
 cd backend
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-pip install -r requirements.txt
-python main.py
-# Backend runs on http://localhost:8000
-```
-
-## API Documentation
-
-Once backend is running, visit `http://localhost:8000/docs` for Swagger UI.
-
-### Auth Endpoints
-- `POST /api/v1/auth/signup` - Create new account
-- `POST /api/v1/auth/login` - Login
-- `GET /api/v1/auth/me` - Get current user
-- `POST /api/v1/auth/logout` - Logout
-
-### Tax Profile Endpoints
-- `POST /api/v1/tax-profiles` - Create tax profile
-- `GET /api/v1/tax-profiles/current` - Get current user's profile
-- `GET /api/v1/tax-profiles/{id}` - Get specific profile
-- `PUT /api/v1/tax-profiles/{id}` - Update profile
-- `DELETE /api/v1/tax-profiles/{id}` - Delete profile
-- `POST /api/v1/tax-profiles/{id}/documents` - Upload documents
-
-## User Flow
-
-1. **Login/Signup** → Authenticate user
-2. **Dashboard** → View overview and available actions
-3. **Tax Profile** → Fill 6-step form:
-   - Personal Information
-   - Residential Status & Employment
-   - Income Details
-   - Investments & Deductions
-   - Tax & Bank Details
-   - Document Upload
-4. **Dashboard** → Profile saved, ready for next steps
-
-## Development
-
-### Frontend Development
-- Update components in `frontend/src/components/`
-- Add pages in `frontend/src/pages/`
-- Modify types in `frontend/src/types/`
-- API calls via `frontend/src/lib/api.ts`
-
-### Backend Development
-- Database models in `backend/models/`
-- Request schemas in `backend/schemas/`
-- Routes in `backend/routes/`
-- Business logic in utilities
-
-### Database Migrations
-The development setup uses SQLAlchemy table creation. Existing PostgreSQL databases must apply `backend/migrations/001_itr_profile_upgrade.sql`; it adds fields without destroying profile rows. No ITR decision engine, tax engine, ITD integration, or bank integration is included yet.
-
-For production:
-```bash
-# Install alembic
-pip install alembic
-
-# Initialize migrations
-alembic init alembic
-
-# Create migration
-alembic revision --autogenerate -m "description"
-
-# Apply migration
-alembic upgrade head
-```
-
-## Testing
-
-### Frontend Tests (TODO)
-```bash
-cd frontend
-npm run test
-```
-
-### Backend Tests (TODO)
-```bash
-cd backend
-pytest
-```
-
-## Deployment
-
-### Frontend
-```bash
-cd frontend
+python -m pytest
+cd ..\frontend
+npm run type-check
 npm run build
-npm start
-# Or deploy to Vercel, Netlify
 ```
 
-### Backend
-```bash
-# Using Gunicorn
-pip install gunicorn
-gunicorn -w 4 -b 0.0.0.0:8000 main:app
-```
+Automated tests exercise implemented behavior; they are not evidence of universal or real-world tax accuracy.
 
-## Environment Variables
+## Project Guides
 
-### Frontend (.env.local)
-```
-NEXT_PUBLIC_API_URL=http://localhost:8000
-```
-
-### Backend (.env)
-```
-DATABASE_URL=postgresql://user:password@localhost:5432/taxwise_db
-SECRET_KEY=your-secret-key
-ALLOWED_ORIGINS=http://localhost:3000
-```
-
-## Contributing
-
-1. Create a feature branch
-2. Make changes
-3. Submit a pull request
-
-## License
-
-MIT
-
-## Support
-
-For issues and questions, please open a GitHub issue.
-
----
-
-**Built with ❤️ for simplifying tax filing**
+- [Research overview and paper-writing reference](docs/RESEARCH_OVERVIEW.md)
+- [Developer and architecture guide](docs/dev-guide.md)
+- [API reference](docs/API.md)
+- [Tax engine rules and scope](docs/TAX_ENGINE.md)
+- [Document extraction and review](docs/DOCUMENT_INTELLIGENCE.md)
+- [ITR-1 preparation scope](docs/ITR1.md)
+- [Return selection and future preparation scope](docs/ITR2_3.md)
+- [Setup guide](docs/SETUP.md)
