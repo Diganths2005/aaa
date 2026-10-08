@@ -10,6 +10,7 @@ from models.user import User
 from routes.auth import get_current_user
 from schemas.tax_profile import TaxProfileCreate
 from schemas.what_if import WhatIfApplyRequest, WhatIfResult, WhatIfScenarioRequest
+from services.profile_service import ProfileService
 from services.what_if import apply_changes, simulate
 
 router = APIRouter(prefix="/what-if", tags=["what-if"])
@@ -44,10 +45,7 @@ def apply_what_if(request: WhatIfApplyRequest, current_user: User = Depends(get_
         base = TaxProfileCreate.model_validate(profile)
         simulated = simulate(base, request)
         updated = apply_changes(base, request.changes)
-        for field, value in updated.model_dump(mode="json").items():
-            setattr(profile, field, value)
-        db.commit()
-        db.refresh(profile)
+        profile = ProfileService(db).save(current_user.id, updated)
     except (ValueError, KeyError) as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
