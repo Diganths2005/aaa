@@ -16,6 +16,7 @@ from routes.auth import get_current_user
 from schemas.onboarding import DocumentCandidateRequest, OnboardingConfirmRequest, OnboardingMessageRequest, OnboardingSessionResponse
 from schemas.tax_profile import TaxProfileCreate, TaxProfileResponse
 from services.onboarding import apply_candidate, initial_state, next_question, parse_answer, progress, start_state
+from services.profile_service import ProfileService
 from utils.common import generate_id
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -109,7 +110,8 @@ def message(request: OnboardingMessageRequest, current_user: User = Depends(get_
 
 
 def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], current_user: User, db: Session) -> TaxProfile:
-    profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
+    service = ProfileService(db)
+    profile = service.get(current_user.id)
     existing = raw_profile_dict(profile)
     profile_candidate = deepcopy(candidate)
     candidate_name = profile_candidate.pop("name", None)
@@ -117,6 +119,7 @@ def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], cur
         name_parts = candidate_name.split(maxsplit=1)
         current_user.first_name = name_parts[0]
         current_user.last_name = name_parts[1] if len(name_parts) > 1 else ""
+
     merged = {**existing, **profile_candidate}
     if "salary_tds" in merged:
         salary_income = list(merged.get("salary_income") or [])
@@ -129,27 +132,22 @@ def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], cur
             taxes_paid = merged.setdefault("taxes_paid", [])
             if not any(item.get("tax_type") == "tds" and item.get("amount") == salary_tds for item in taxes_paid):
                 taxes_paid.append({"tax_type": "tds", "amount": salary_tds})
+
     merged.pop("id", None)
     merged.pop("user_id", None)
     try:
         validated = TaxProfileCreate.model_validate(merged)
+        saved = service.save(current_user.id, validated)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    if profile:
-        for field, value in validated.model_dump(mode="json").items():
-            setattr(profile, field, value)
-    else:
-        profile = TaxProfile(id=generate_id(), user_id=current_user.id, **validated.model_dump(mode="json"))
-        db.add(profile)
-    try:
-        db.commit()
     except IntegrityError as exc:
         db.rollback()
-        message = "A tax profile with this PAN already exists. Please use a different PAN or update the existing profile."
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message) from exc
-    db.refresh(profile)
-    session.profile_id = profile.id
-    return profile
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A tax profile with this PAN already exists. Please use a different PAN or update the existing profile.",
+        ) from exc
+    session.profile_id = saved.id
+    return saved
 
 
 @router.post("/confirm", response_model=OnboardingSessionResponse)
