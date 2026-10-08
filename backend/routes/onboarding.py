@@ -167,13 +167,15 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
         ).first()
         if not document or document.status != "REQUIRES_CONFIRMATION":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document review is no longer available")
-    existing_profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
-    existing_documents = db.query(UserDocument).filter(UserDocument.user_id == current_user.id).all()
-    warnings = reconcile_candidate(
-        TaxProfileCreate.model_validate(existing_profile) if existing_profile else None,
-        candidate,
-        existing_documents,
-    )
+    warnings = []
+    if document:
+        existing_profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
+        existing_documents = db.query(UserDocument).filter(UserDocument.user_id == current_user.id).all()
+        warnings = reconcile_candidate(
+            TaxProfileCreate.model_validate(existing_profile) if existing_profile else None,
+            candidate,
+            existing_documents,
+        )
     if request.action == "confirm":
         profile = persist_candidate(session, candidate, current_user, db)
         session.state = apply_candidate(state, candidate, "confirm")
