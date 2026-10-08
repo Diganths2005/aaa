@@ -45,7 +45,7 @@ def apply_what_if(request: WhatIfApplyRequest, current_user: User = Depends(get_
         base = TaxProfileCreate.model_validate(profile)
         simulated = simulate(base, request)
         updated = apply_changes(base, request.changes)
-        profile = ProfileService(db).save(current_user.id, updated)
+        profile = ProfileService(db).save(current_user.id, updated, profile_id=profile.id)
     except (ValueError, KeyError) as exc:
         db.rollback()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
