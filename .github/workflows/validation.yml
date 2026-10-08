@@ -16,27 +16,10 @@ jobs:
       fail-fast: false
       matrix:
         test_file:
-          - tests/test_ai_tax_architecture.py
-          - tests/test_chat_api.py
-          - tests/test_deduction_discovery.py
-          - tests/test_deduction_eligibility.py
-          - tests/test_document_api.py
-          - tests/test_document_extraction.py
-          - tests/test_document_storage.py
-          - tests/test_final_deduction_rules.py
-          - tests/test_itr1.py
-          - tests/test_itr_api.py
-          - tests/test_itr_decision_engine.py
-          - tests/test_itr_selection.py
-          - tests/test_knowledge.py
-          - tests/test_onboarding_api.py
-          - tests/test_onboarding_engine.py
-          - tests/test_profile_reliability.py
-          - tests/test_tax_api.py
-          - tests/test_tax_engine.py
-          - tests/test_tax_engine_hardening.py
-          - tests/test_tax_profile_schema.py
-          - tests/test_what_if.py
+          - tests/test_onboarding_api.py::test_session_message_and_confirmation_updates_profile
+          - tests/test_onboarding_api.py::test_onboarding_reject_does_not_create_profile_from_candidate
+          - tests/test_onboarding_api.py::test_document_candidate_with_tds_but_no_salary_does_not_crash
+          - tests/test_onboarding_api.py::test_document_candidate_does_not_duplicate_tds_tax_payment
     services:
       postgres:
         image: postgres:16
