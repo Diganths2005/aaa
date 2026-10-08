@@ -14,6 +14,17 @@ def _decimal(value: Any) -> Decimal | None:
         return None
 
 
+def _salary_value(value: Any) -> Decimal | None:
+    """Normalize salary candidates from onboarding or document extraction."""
+    if isinstance(value, list):
+        if not value:
+            return None
+        value = value[0]
+    if isinstance(value, dict):
+        return _decimal(value.get("gross_salary", value.get("amount")))
+    return _decimal(value)
+
+
 def reconcile_candidate(
     profile: TaxProfileCreate | None,
     candidate: dict[str, Any],
@@ -30,7 +41,7 @@ def reconcile_candidate(
             })
 
     if profile and candidate.get("salary_income") and profile.salary_income:
-        new_salary = _decimal(candidate["salary_income"][0].get("gross_salary"))
+        new_salary = _salary_value(candidate.get("salary_income"))
         old_salary = _decimal(profile.salary_income[0].gross_salary)
         if new_salary is not None and old_salary is not None and new_salary != old_salary:
             warnings.append({
