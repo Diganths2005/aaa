@@ -20,8 +20,8 @@ class ProfileService:
             query = query.filter(TaxProfile.id == profile_id)
         return query.first()
 
-    def save(self, user_id: str, data: TaxProfileCreate) -> TaxProfile:
-        profile = self.get(user_id)
+    def save(self, user_id: str, data: TaxProfileCreate, profile_id: str | None = None) -> TaxProfile:
+        profile = self.get(user_id, profile_id)
         payload = data.model_dump(mode="json")
         if profile is None:
             profile = TaxProfile(id=generate_id(), user_id=user_id, **payload)
