@@ -34,5 +34,7 @@ def extract_pdf_pages(content: bytes) -> List[str]:
         return pages
     except pytesseract.TesseractNotFoundError as exc:
         raise ValueError("DOCUMENT_REQUIRES_OCR") from exc
+    except pytesseract.TesseractError as exc:
+        raise ValueError("DOCUMENT_REQUIRES_OCR") from exc
     except (RuntimeError, ValueError) as exc:
         raise ValueError("Could not render PDF for OCR") from exc
