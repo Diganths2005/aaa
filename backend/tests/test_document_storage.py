@@ -7,7 +7,7 @@ def test_document_storage_is_user_and_document_isolated(tmp_path: Path):
     storage = DocumentStorage(tmp_path)
     key, digest = storage.save("user-1", "doc-1", "statement.pdf", b"hello")
 
-    assert key == "user-1/doc-1/doc-1.pdf"
+    assert key == "user-1/doc-1/statement.pdf"
     assert storage.read(key) == b"hello"
     assert len(digest) == 64
     assert storage.exists(key)
