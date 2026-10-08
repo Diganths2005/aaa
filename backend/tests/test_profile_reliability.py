@@ -18,6 +18,15 @@ def test_profile_completeness_requires_income_and_tax_payment_confirmation():
     assert "taxes_paid_or_confirmed_none" in result["missing_fields"]
 
 
+def test_reconciliation_detects_scalar_salary_conflict():
+    profile = TaxProfileCreate(
+        pan_number="ABCDE1234F",
+        salary_income=[SalaryIncome(employer_name="Example Ltd", gross_salary=Decimal("600000"))],
+    )
+    warnings = reconcile_candidate(profile, {"salary_income": "700000"})
+    assert any(item["field"] == "salary_income" and item["severity"] == "medium" for item in warnings)
+
+
 def test_reconciliation_detects_pan_conflict():
     profile = TaxProfileCreate(pan_number="ABCDE1234F")
     warnings = reconcile_candidate(profile, {"pan_number": "FGHIJ5678K"})
