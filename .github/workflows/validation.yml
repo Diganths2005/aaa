@@ -9,6 +9,31 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        test_file:
+          - tests/test_ai_tax_architecture.py
+          - tests/test_chat_api.py
+          - tests/test_deduction_discovery.py
+          - tests/test_deduction_eligibility.py
+          - tests/test_document_api.py
+          - tests/test_document_extraction.py
+          - tests/test_document_storage.py
+          - tests/test_final_deduction_rules.py
+          - tests/test_itr1.py
+          - tests/test_itr_api.py
+          - tests/test_itr_decision_engine.py
+          - tests/test_itr_selection.py
+          - tests/test_knowledge.py
+          - tests/test_onboarding_api.py
+          - tests/test_onboarding_engine.py
+          - tests/test_profile_reliability.py
+          - tests/test_tax_api.py
+          - tests/test_tax_engine.py
+          - tests/test_tax_engine_hardening.py
+          - tests/test_tax_profile_schema.py
+          - tests/test_what_if.py
     services:
       postgres:
         image: postgres:16
@@ -33,12 +58,12 @@ jobs:
           python-version: "3.11"
       - name: Install backend dependencies
         run: pip install -r requirements.txt
-      - name: Run backend tests
+      - name: Run backend test file
         env:
           DATABASE_URL: postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db
           SECRET_KEY: ci-test-secret
           DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-documents
-        run: python -m pytest -q
+        run: python -m pytest -q ${{ matrix.test_file }} --tb=short
 
   frontend:
     runs-on: ubuntu-latest
