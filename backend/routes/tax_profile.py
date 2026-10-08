@@ -75,7 +75,7 @@ def update_tax_profile(
     current.update(payload)
     current.pop("id", None)
     current.pop("user_id", None)
-    return service.save(current_user.id, TaxProfileCreate.model_validate(current))
+    return service.save(current_user.id, TaxProfileCreate.model_validate(current), profile_id=profile.id)
 
 
 @router.post("/{profile_id}/documents")
