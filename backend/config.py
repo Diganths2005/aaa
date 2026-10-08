@@ -30,3 +30,5 @@ OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
 GITHUB_MODELS_TOKENS = [token.strip() for token in os.getenv("GITHUB_MODELS_TOKENS", os.getenv("GITHUB_TOKEN", "")).split(",") if token.strip()]
 GITHUB_MODELS_MODEL = os.getenv("GITHUB_MODELS_MODEL", "openai/gpt-4o-mini")
 GITHUB_MODELS_URL = os.getenv("GITHUB_MODELS_URL", "https://models.github.ai/inference")
+
+DOCUMENT_STORAGE_DIR = os.getenv("DOCUMENT_STORAGE_DIR", ".taxwise-data/documents")
