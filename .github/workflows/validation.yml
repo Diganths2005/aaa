@@ -38,7 +38,23 @@ jobs:
           DATABASE_URL: postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db
           SECRET_KEY: ci-test-secret
           DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-documents
-        run: python -m pytest -q
+        run: |
+          set +e
+          python -m pytest -q --tb=short 2>&1 | tee /tmp/pytest.log
+          status=\${PIPESTATUS[0]}
+          cat /tmp/pytest.log >> "$GITHUB_STEP_SUMMARY"
+          exit $status
+      - name: Preserve backend failure log
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp /tmp/pytest.log backend-ci-failure.log
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add backend-ci-failure.log
+          git commit -m "ci: capture backend test failure"
+          git push origin HEAD:${{ github.ref_name }}
 
   frontend:
     runs-on: ubuntu-latest
