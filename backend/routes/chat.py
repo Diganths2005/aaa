@@ -19,6 +19,7 @@ from tax_engine.deductions import ALLOWED_NEW, ALLOWED_OLD, calculate_deductions
 from tax_engine.income import taxpayer_age_category
 from tax_engine.models import TaxEngineError
 from services.knowledge import LocalTaxKnowledgeBase, RetrievalFilter
+from services.semantic_rag import SemanticKnowledgeBase, SemanticRAGUnavailable
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -344,14 +345,24 @@ def chat_with_taxwise(
     profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
     profile_payload = TaxProfileCreate.model_validate(profile) if profile else None
     assessment_year = profile_payload.assessment_year if profile_payload else "2026-27"
+    retrieval_filter = RetrievalFilter(assessment_year=assessment_year, user_id=current_user.id)
     try:
-        retrieved_context = list(LocalTaxKnowledgeBase(db=db).retrieve(
+        retrieved_context = list(SemanticKnowledgeBase(db=db).retrieve(
             message,
-            RetrievalFilter(assessment_year=assessment_year, user_id=current_user.id),
+            retrieval_filter,
             limit=5,
         ))
-    except Exception:
-        retrieved_context = []
+    except (SemanticRAGUnavailable, Exception):
+        # Semantic retrieval is an enhancement, not a reason to break the
+        # deterministic tax assistant. Fall back to the local hybrid retriever.
+        try:
+            retrieved_context = list(LocalTaxKnowledgeBase(db=db).retrieve(
+                message,
+                retrieval_filter,
+                limit=5,
+            ))
+        except Exception:
+            retrieved_context = []
     requires_calculation = _requires_calculation(message)
     if _asks_about_uploaded_documents(message) and not requires_calculation:
         knowledge_context = [
