@@ -13,15 +13,27 @@ jobs:
       fail-fast: false
       matrix:
         test_file:
-          - tests/test_document_api.py::test_upload_process_and_confirm_updates_profile
-          - tests/test_document_api.py::test_taxwise_import_template_populates_supported_profile_fields_after_confirmation
-          - tests/test_document_api.py::test_full_profile_workbook_imports_profile_records_after_confirmation
-          - tests/test_document_api.py::test_rejected_document_candidates_do_not_change_profile_and_are_not_reoffered
-          - tests/test_document_api.py::test_document_access_is_isolated_by_user
-          - tests/test_document_api.py::test_chat_retrieves_only_the_current_users_processed_document
-          - tests/test_document_api.py::test_deleting_document_removes_it_from_chat_retrieval
-          - tests/test_document_api.py::test_excel_upload_process_and_list_preserves_extracted_values
-          - tests/test_document_api.py::test_excel_upload_accepts_browser_generic_mime_type
+          - tests/test_ai_tax_architecture.py
+          - tests/test_chat_api.py
+          - tests/test_deduction_discovery.py
+          - tests/test_deduction_eligibility.py
+          - tests/test_document_api.py
+          - tests/test_document_extraction.py
+          - tests/test_document_storage.py
+          - tests/test_final_deduction_rules.py
+          - tests/test_itr1.py
+          - tests/test_itr_api.py
+          - tests/test_itr_decision_engine.py
+          - tests/test_itr_selection.py
+          - tests/test_knowledge.py
+          - tests/test_onboarding_api.py
+          - tests/test_onboarding_engine.py
+          - tests/test_profile_reliability.py
+          - tests/test_tax_api.py
+          - tests/test_tax_engine.py
+          - tests/test_tax_engine_hardening.py
+          - tests/test_tax_profile_schema.py
+          - tests/test_what_if.py
     defaults:
       run:
         working-directory: backend
@@ -32,10 +44,10 @@ jobs:
           python-version: "3.11"
       - name: Install backend dependencies
         run: pip install -r requirements.txt
-      - name: Run backend test
+      - name: Run backend test file
         env:
           DATABASE_URL: sqlite:///./tax-api-test.db
-          SECRET_KEY: test-secret
+          SECRET_KEY: ci-test-secret
           DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-documents
         run: python -m pytest -q ${{ matrix.test_file }} --tb=short
 
