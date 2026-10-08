@@ -132,10 +132,17 @@ class SemanticKnowledgeBase:
                 ],
             )
         query_embedding = self._embedding(client, [query])[0]
+        allowed_year = filters.assessment_year or ""
+        where = {
+            "$and": [
+                {"$or": [{"source_type": "knowledge"}, {"user_id": filters.user_id or ""}]},
+                {"$or": [{"assessment_year": allowed_year}, {"assessment_year": ""}]},
+            ]
+        }
         result = collection.query(
             query_embeddings=[query_embedding],
             n_results=limit,
-            where={"assessment_year": filters.assessment_year or ""},
+            where=where,
         )
         contexts: list[RetrievedContext] = []
         for text, metadata in zip(result.get("documents", [[]])[0], result.get("metadatas", [[]])[0]):
