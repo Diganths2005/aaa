@@ -11,7 +11,7 @@ module.exports = {
         secondary: "#047857",
         accent: "#10B981",
         mint: "#ECFDF5",
-        slate: "#F8FAFC",
+        surface: "#F8FAFC",
         card: "#FFFFFF",
         text: "#0F172A",
         muted: "#64748B",

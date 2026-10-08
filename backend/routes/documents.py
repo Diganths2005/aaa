@@ -1,17 +1,20 @@
+import json
 from pathlib import Path
 from tempfile import gettempdir
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.encoders import jsonable_encoder
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from database import get_db
 from documents.extractor import process_pdf
 from documents.spreadsheet_extractor import process_spreadsheet
-from models.document import UserDocument
+from models.document import UserDocument, UserDocumentChunk
 from models.user import User
 from routes.auth import get_current_user
 from schemas.document import DocumentCreate, DocumentResponse, DocumentType, SUPPORTED_DOCUMENT_EXTENSIONS
+from services.knowledge import chunk_text
 from utils.common import generate_id
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -103,22 +106,42 @@ def process_document(
         result = process_pdf(content) if storage_path.suffix.lower() == ".pdf" else process_spreadsheet(content)
         candidates = [candidate.as_dict() for candidate in result.candidates]
         onboarding_values = _onboarding_values(candidates)
+        extracted_pages = result.text.split("\f") if storage_path.suffix.lower() == ".pdf" else [result.text]
+        db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
+        chunks = []
+        chunk_index = 0
+        for page_number, page_text in enumerate(extracted_pages, start=1):
+            for text in chunk_text(page_text):
+                chunks.append(UserDocumentChunk(
+                    id=generate_id(),
+                    document_id=document.id,
+                    chunk_index=chunk_index,
+                    page_number=page_number,
+                    text=text,
+                ))
+                chunk_index += 1
+        db.add_all(chunks)
         document.status = "REQUIRES_CONFIRMATION" if candidates else "PROCESSED"
         document.page_count = result.page_count
         document.processing_result = {"document_type": result.document_type, "candidates": candidates, "onboarding_values": onboarding_values}
         db.commit()
         return {"document_id": document.id, "status": document.status, "page_count": result.page_count, "candidates": candidates, "onboarding_values": onboarding_values}
     except ValueError as exc:
+        db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
         document.status = "FAILED"
         document.processing_result = {"error": str(exc)}
         db.commit()
         if str(exc) == "DOCUMENT_REQUIRES_OCR":
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="DOCUMENT_REQUIRES_OCR") from exc
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="Could not extract text from this PDF") from exc
+        detail = "Could not extract text from this PDF" if storage_path.suffix.lower() == ".pdf" else str(exc)
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
 
 
 def _onboarding_values(candidates: list[dict]) -> dict:
     values = {}
+    profile_import = next((item["value"] for item in candidates if item["field"] == "profile_import"), None)
+    if profile_import is not None:
+        return json.loads(profile_import)
     candidate_values = {item["field"]: item["value"] for item in candidates}
     salary = next((item["value"] for item in candidates if item["field"] == "salary_income"), None)
     tds = next((item["value"] for item in candidates if item["field"] == "tds"), None)
@@ -152,7 +175,7 @@ def _onboarding_values(candidates: list[dict]) -> dict:
         values["date_of_birth"] = date_of_birth
     if name is not None:
         values["name"] = name
-    deductions = [{"section": section, "amount": candidate_values.get(field)} for field, section in (("deduction_80C", "80C"), ("deduction_80D", "80D"), ("deduction_80CCD_1B", "80CCD(1B)"))]
+    deductions = [{"section": section, "amount": candidate_values.get(field)} for field, section in (("deduction_80C", "80C"), ("deduction_80D", "80D"), ("deduction_80CCD_1B", "80CCD(1B)"), ("deduction_80G", "80G"))]
     values["deductions"] = [item for item in deductions if item["amount"] is not None]
     taxes_paid = []
     if tds is not None:
@@ -172,6 +195,31 @@ def list_documents(
     return db.query(UserDocument).filter(UserDocument.user_id == current_user.id).order_by(UserDocument.created_at.desc()).all()
 
 
+@router.get("/{document_id}/content")
+def get_document_content(
+    document_id: str,
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    document = db.query(UserDocument).filter(
+        UserDocument.id == document_id,
+        UserDocument.user_id == current_user.id,
+    ).first()
+    if not document:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    if not document.storage_key:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document content is not available")
+    storage_path = DOCUMENT_STORAGE / Path(document.storage_key).name
+    if not storage_path.is_file():
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document content is not available")
+    media_type = "application/pdf" if storage_path.suffix.lower() == ".pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    return Response(
+        content=storage_path.read_bytes(),
+        media_type=media_type,
+        headers={"Content-Disposition": "inline", "Cache-Control": "private, no-store"},
+    )
+
+
 @router.delete("/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_document(
     document_id: str,
@@ -184,6 +232,7 @@ def delete_document(
     ).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
+    db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
     db.delete(document)
     if document.storage_key:
         (DOCUMENT_STORAGE / Path(document.storage_key).name).unlink(missing_ok=True)

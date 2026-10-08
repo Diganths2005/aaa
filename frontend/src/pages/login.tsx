@@ -48,7 +48,7 @@ const LoginPage: React.FC = () => {
             </div>
 
             <div className="mt-12 space-y-4">
-              {['Tax profile intelligence', 'Regime comparison', 'Document reconciliation', 'What-if scenarios'].map((item) => (
+              {['Tax profile intelligence', 'Regime comparison', 'Document review', 'What-if scenarios'].map((item) => (
                 <div key={item} className="flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm text-emerald-50/90">
                   <span className="flex h-6 w-6 items-center justify-center rounded-full bg-[#10B981] text-xs font-bold text-[#064E3B]">✓</span>
                   {item}

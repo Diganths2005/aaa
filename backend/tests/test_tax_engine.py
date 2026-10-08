@@ -22,6 +22,9 @@ def test_salary_only_applies_standard_deduction():
     assert result.total_deductions == Decimal("50000")
     assert result.taxable_income == Decimal("950000")
     assert result.total_tax_liability == Decimal("106600")
+    assert sum((step.tax for step in result.slab_calculation), Decimal("0")) == result.tax_before_rebate
+    assert result.tax_after_rebate == result.tax_before_rebate - result.rebate
+    assert result.total_tax_liability == result.tax_after_rebate + result.surcharge + result.cess
 
 
 def test_multiple_income_sources_and_house_property():
@@ -70,6 +73,26 @@ def test_tax_greater_than_tds_is_payable():
         taxes_paid=[{"tax_type": "tds", "amount": 1000}],
     ), "old")
     assert result.balance_payable == Decimal("105600")
+
+
+def test_income_source_tds_is_used_when_tax_payment_list_has_no_tds():
+    result = calculate_tax(profile(salary_income=[{
+        "employer_name": "Acme",
+        "gross_salary": 1000000,
+        "tds": 20000,
+    }]), "old")
+
+    assert result.tds == Decimal("20000")
+    assert result.total_tax_paid == Decimal("20000")
+
+
+def test_explicit_tds_payment_prevents_duplicate_source_tds():
+    result = calculate_tax(profile(
+        salary_income=[{"employer_name": "Acme", "gross_salary": 1000000, "tds": 20000}],
+        taxes_paid=[{"tax_type": "tds", "amount": 20000}],
+    ), "old")
+
+    assert result.tds == Decimal("20000")
 
 
 def test_compare_regimes_is_deterministic():

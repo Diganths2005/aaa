@@ -13,6 +13,7 @@ class OnboardingConfirmRequest(BaseModel):
 
 class DocumentCandidateRequest(BaseModel):
     candidate_values: Dict[str, Any]
+    document_id: Optional[str] = None
     source: Literal["DOCUMENT"] = "DOCUMENT"
 
 

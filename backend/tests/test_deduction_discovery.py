@@ -51,3 +51,28 @@ def test_nps_contribution_is_detected_when_present():
     assert result["claimedAmount"] == Decimal("50000")
     assert result["appliedAmount"] == Decimal("50000")
     assert result["status"] in {"ELIGIBLE", "CONFIRMED", "APPLIED"}
+
+
+def test_80ttb_is_not_discovered_for_a_non_senior_taxpayer():
+    profile = make_profile(date_of_birth="1990-01-01")
+
+    findings = discover_deductions(profile, regime="old")
+
+    assert "80TTB" not in {item["section"] for item in findings}
+
+
+def test_80ttb_is_discovered_for_a_senior_taxpayer():
+    profile = make_profile(date_of_birth="1960-01-01")
+
+    findings = discover_deductions(profile, regime="old")
+
+    assert "80TTB" in {item["section"] for item in findings}
+
+
+def test_new_regime_marks_old_regime_only_deductions_unavailable():
+    profile = make_profile()
+
+    findings = {item["section"]: item for item in discover_deductions(profile, regime="new")}
+
+    assert findings["80C"]["status"] == "NOT_APPLICABLE"
+    assert findings["80C"]["reasonCode"] == "REGIME_NOT_ALLOWED"

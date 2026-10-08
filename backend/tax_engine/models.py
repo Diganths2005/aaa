@@ -46,6 +46,14 @@ class CapitalGainsSummary(BaseModel):
     itr1_capital_gain_reason: str
 
 
+class TaxSlabCalculation(BaseModel):
+    lower_bound: Decimal
+    upper_bound: Optional[Decimal] = None
+    rate: Decimal
+    taxable_amount: Decimal
+    tax: Decimal
+
+
 class TaxCalculationResult(BaseModel):
     income_from_salary: Decimal
     income_from_pension: Decimal
@@ -64,6 +72,8 @@ class TaxCalculationResult(BaseModel):
     taxable_income: Decimal
     tax_before_rebate: Decimal
     rebate: Decimal
+    tax_after_rebate: Decimal
+    slab_calculation: list[TaxSlabCalculation] = Field(default_factory=list)
     surcharge: Decimal
     cess: Decimal
     total_tax_liability: Decimal
@@ -75,7 +85,7 @@ class TaxCalculationResult(BaseModel):
     refund: Decimal
     regime: Regime
 
-    @field_validator("gross_total_income", "total_deductions", "taxable_income", "tax_before_rebate", "rebate", "surcharge", "cess", "total_tax_liability", "tds", "advance_tax", "self_assessment_tax", "total_tax_paid", "balance_payable", "refund")
+    @field_validator("gross_total_income", "total_deductions", "taxable_income", "tax_before_rebate", "rebate", "tax_after_rebate", "surcharge", "cess", "total_tax_liability", "tds", "advance_tax", "self_assessment_tax", "total_tax_paid", "balance_payable", "refund")
     @classmethod
     def non_negative_result(cls, value: Decimal) -> Decimal:
         if value < 0:

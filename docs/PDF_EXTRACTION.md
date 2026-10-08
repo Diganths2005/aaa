@@ -1,21 +1,27 @@
-# PDF Tax Data Extraction
+# Document Extraction and Review
 
-TaxWise supports optional text-based tax PDF processing for the presentation flow. Uploading a document never changes the Tax Profile automatically.
+TaxWise accepts PDFs and Excel workbooks (`.xlsx`, `.xlsm`) through the authenticated document workflow. Uploading or processing a document never changes the Tax Profile by itself.
 
 ## Flow
 
 ```text
-PDF upload -> UPLOADED -> PROCESSING -> pypdf text extraction
-  -> field candidates -> REQUIRES_CONFIRMATION
-  -> onboarding document candidate -> Confirm -> Tax Profile
+Upload -> temporary storage -> text/workbook extraction -> field candidates
+  -> review on Documents page -> Confirm or Reject -> Tax Profile
 ```
 
-`POST /api/v1/documents/upload` accepts an authenticated PDF up to 10 MB and stores its bytes behind an opaque temporary storage key. `POST /api/v1/documents/{document_id}/process` reads that file using `pypdf`, extracts each page, and applies generic labels such as Employee Name, PAN, Employer, Gross Salary, TDS Deducted, Section 80C, and Section 80D.
+`POST /api/v1/documents/upload` accepts a file up to 10 MB. `POST /api/v1/documents/{document_id}/process` extracts text and field candidates. Each candidate includes its source, confidence, and page where available; extracted amounts are parsed with `Decimal`. The processor also builds an onboarding-compatible payload for profile validation.
 
-Currency values are parsed with `Decimal`, supporting rupee-marked/grouped values and lakh notation. Each candidate contains field, value, source, confidence, page, and confirmation requirement. The processing result also contains an onboarding-compatible candidate payload.
+PDF text is extracted with `pypdf`. When no page text is available, the backend attempts OCR through PyMuPDF and `pytesseract`. A working Tesseract executable must be installed on the backend host; otherwise the API returns `DOCUMENT_REQUIRES_OCR`. OCR is a conditional fallback, not a guarantee that every scanned layout can be read.
 
-The existing onboarding confirmation API is the only profile write path. Confirmed candidates update the existing Tax Profile and advance its persisted onboarding state. Rejected candidates do not update the profile. Future conflict review can compare document candidates with current profile values before confirmation.
+Excel worksheets are read with `openpyxl`; supported text labels are passed through the same field detector. The extraction rules cover only known labels and candidate fields. Other layouts and ambiguous values may not be recognized correctly.
 
-Textless or scanned PDFs return `DOCUMENT_REQUIRES_OCR`; OCR is deliberately not implemented. Invalid files, unsupported types, oversized files, and extraction failures return explicit errors without blocking manual profile entry.
+The Documents page shows candidates and requires the user to confirm or reject the mapped set. Confirmed values are validated and merged with the existing profile through the onboarding confirmation service. Rejection does not write profile data. Review status is persisted as `CONFIRMED` or `REJECTED`; ownership is checked on document reads, processing, and review.
 
-Document access requires JWT authentication and every query is scoped by authenticated `user_id`. Raw extracted text is not returned in logs; stored document bytes are behind an opaque storage key and must be replaced with encrypted object storage in production.
+## Limits
+
+- The extractor does not validate extracted amounts against an external statement or tax-credit source.
+- Review supports whole-candidate confirmation or rejection, not per-field editing.
+- Uploaded files currently use local temporary storage. Production use requires protected persistent storage, an explicit retention policy, and privacy/security review.
+- The legacy profile document route returns `410 Gone`; use `/api/v1/documents`.
+
+Automated coverage is in `backend/tests/test_document_extraction.py` and `backend/tests/test_document_api.py`.

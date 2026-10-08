@@ -1,4 +1,4 @@
-from sqlalchemy import Column, DateTime, ForeignKey, Integer, JSON, String
+from sqlalchemy import Column, DateTime, ForeignKey, Index, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.sql import func
 
 from database import Base
@@ -22,3 +22,17 @@ class UserDocument(Base):
 
     def __repr__(self):
         return f"<UserDocument(id={self.id}, user_id={self.user_id}, status={self.status})>"
+
+
+class UserDocumentChunk(Base):
+    __tablename__ = "user_document_chunks"
+    __table_args__ = (
+        UniqueConstraint("document_id", "chunk_index", name="uq_user_document_chunk"),
+        Index("ix_user_document_chunks_document_id", "document_id"),
+    )
+
+    id = Column(String, primary_key=True, index=True)
+    document_id = Column(String, ForeignKey("user_documents.id", ondelete="CASCADE"), nullable=False)
+    chunk_index = Column(Integer, nullable=False)
+    page_number = Column(Integer, nullable=True)
+    text = Column(Text, nullable=False)

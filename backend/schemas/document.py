@@ -16,7 +16,7 @@ DocumentType = Literal[
     "other",
 ]
 
-DocumentStatus = Literal["UPLOADED", "PROCESSING", "PROCESSED", "REQUIRES_CONFIRMATION", "CONFIRMED", "FAILED", "DELETED", "pending"]
+DocumentStatus = Literal["UPLOADED", "PROCESSING", "PROCESSED", "REQUIRES_CONFIRMATION", "CONFIRMED", "REJECTED", "FAILED", "DELETED", "pending"]
 
 SUPPORTED_DOCUMENT_EXTENSIONS = (".pdf", ".xlsx", ".xlsm")
 

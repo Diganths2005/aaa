@@ -11,7 +11,7 @@ This document summarizes the implemented TaxWise prototype as a reference for a 
 
 ### Paper-Ready Abstract
 
-TaxWise is a web application prototype intended to help individual taxpayers organize tax-profile information, examine supported Indian income-tax scenarios, compare tax regimes, and review a limited return-preparation workflow. Its architecture combines a deterministic Python tax engine with Decimal-based arithmetic and assessment-year-specific rule modules, a local lexical retrieval system over versioned tax notes, and document-assisted extraction that stages candidate values for user review. An optional language-model integration can phrase explanations from verified calculation facts and relevant knowledge notes, while tax amounts and eligibility decisions remain controlled by application rules. The system also includes authenticated profile management, guided onboarding, regime comparison, what-if scenarios, return-family selection, and ITR-1 preparation with a review PDF. The current implementation is limited to AY 2026-27 and does not file returns or connect to government or financial institutions. Repository tests cover selected engine, API, extraction, and workflow cases; they do not establish population-level tax accuracy, usability, or production readiness.
+TaxWise is a web application prototype intended to help individual taxpayers organize tax-profile information, examine supported Indian income-tax scenarios, compare tax regimes, and review limited preparation summaries. Its architecture combines a deterministic Python tax engine with Decimal-based arithmetic and assessment-year-specific rule modules, a local lexical retrieval system over versioned tax notes, and document-assisted extraction that stages candidate values for user review. An optional language-model integration can phrase explanations from verified calculation facts and relevant knowledge notes, while tax amounts and eligibility decisions remain controlled by application rules. The system also includes authenticated profile management, guided onboarding, regime comparison, what-if scenarios, return-family selection, ITR-1 preparation, and a constrained ITR-3 business-income review summary with PDF output. The current implementation is limited to AY 2026-27 and does not file returns or connect to government or financial institutions. Repository tests cover selected engine, API, extraction, and workflow cases; they do not establish population-level tax accuracy, usability, or production readiness.
 
 ### Keywords
 
@@ -43,7 +43,7 @@ flowchart TD
     API --> Profile[Validated tax profile and onboarding]
     Profile --> Engine[Deterministic Decimal tax engine]
     Engine --> Results[Tax calculation and regime comparison]
-    Results --> ITR[Return selection and supported ITR-1 preparation]
+    Results --> ITR[Return selection and supported ITR-1 / limited ITR-3 summaries]
     ITR --> PDF[Review-only PDF]
     API --> Chat[Chat orchestration]
     Chat --> Engine
@@ -98,15 +98,15 @@ Authenticated users can upload PDF, `.xlsx`, and `.xlsm` documents within the co
 
 Extraction does not immediately mutate the tax profile. The user confirms or rejects the candidate set, after which confirmed values are validated and merged. Field recognition is pattern-based, not a general-purpose document-understanding model. Candidate review is currently at the mapped-set level, rather than per-field editing. Files are stored in temporary local storage, which is not a production retention or protected-storage design.
 
-### 6. Return Selection and ITR-1 Preparation
+### 6. Return Selection and Preparation Summaries
 
-Return selection evaluates a profile and can identify ITR-1, ITR-2, ITR-3, or ITR-4 scenarios with reasons, missing information, and unsupported conditions. Only the supported AY 2026-27 ITR-1 preparation path is implemented. Requests for unsupported preparation paths are not silently converted into ITR-1. ITR-1 output includes a calculation-backed review summary and a PDF; it is not an official filing form, submission, acknowledgement, or e-verification.
+Return selection evaluates a profile and can identify ITR-1, ITR-2, ITR-3, or ITR-4 scenarios with reasons, missing information, and unsupported conditions. The supported AY 2026-27 paths are ITR-1 and a constrained ITR-3 business-income review summary. ITR-3 accepts resident, non-presumptive business profiles with non-negative user-entered net profit and supported calculation facts. It does not prepare books, expenses, depreciation, or complete statutory schedules. Requests outside supported paths are not silently converted into another form. Neither preparation PDF is an official filing form, submission, acknowledgement, or e-verification.
 
 ## Scope and Limitations
 
 - Only AY 2026-27 is implemented. Tax law and annual rules can change; results require review against current official guidance.
 - Supported profile inputs and calculation branches are finite. This is not a complete implementation of every tax provision or taxpayer scenario.
-- ITR-2, ITR-3, and ITR-4 preparation is not implemented, even where return-family selection can identify one of those families.
+- ITR-2 and ITR-4 preparation and full statutory ITR-3 schedules are not implemented, even where return-family selection can identify those families.
 - The product does not file or submit returns, e-verify, produce official acknowledgements, or connect to government, bank, AIS, or Form 26AS systems.
 - Business-income calculation uses constrained user-entered facts and does not compute books, expenses, depreciation, or complete statutory schedules.
 - Foreign-income and foreign-asset schedules, persistent loss-history management, and several complex return schedules are outside scope.
@@ -171,7 +171,7 @@ Set backend environment values such as `DATABASE_URL`, `SECRET_KEY`, and `ALLOWE
 - `backend/tax_engine/` — calculation logic and AY-specific rules.
 - `backend/services/knowledge.py` and `backend/knowledge/` — local note retrieval and assessment-year reference content.
 - `backend/documents/` and `backend/services/document_processing.py` — extraction and document processing.
-- `backend/itr/` — eligibility, return-family selection, ITR-1 preparation, and review-PDF generation.
+- `backend/itr/` — eligibility, return-family selection, ITR-1 and limited ITR-3 preparation summaries, and review-PDF generation.
 - `backend/tests/` — regression coverage for selected implementation behavior.
 
 ## References and Further Reading

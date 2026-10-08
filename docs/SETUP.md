@@ -1,8 +1,8 @@
-## Tax Profile data upgrade
+## Current Data and Persistence
 
-The AY 2026-27 profile stores repeatable, typed sections for salary, pension, house property, other income, capital gains, business/professional income, foreign income/assets, investments, deductions, tax payments, bank accounts, and voluntary document references. It records the flags needed by a future ITR-1/2/3/4 eligibility step, but it does not select an ITR or calculate tax yet.
+The AY 2026-27 profile stores typed sections for salary, pension, house property, other income, capital gains, business/professional income, foreign income/assets, investments, deductions, tax payments, bank accounts, and voluntary document references. The application includes deterministic tax calculation, general return-family selection, ITR-1 preparation, and a limited ITR-3 business-income review summary. ITR-2/4 preparation, complete statutory ITR-3 schedules, and government filing are not implemented.
 
-For an existing PostgreSQL database, apply `backend/migrations/001_itr_profile_upgrade.sql` before deploying the updated backend. The migration only adds columns and keeps existing rows. Local environment files, PAN values, and complete bank account numbers must not be committed or logged.
+For an existing PostgreSQL database, review and apply the required SQL migrations under `backend/migrations/` in order before deploying an updated backend. Local environment files, PAN values, and complete bank account numbers must not be committed or logged.
 # TaxWise Setup Guide
 
 ## Prerequisites
@@ -11,6 +11,8 @@ Ensure you have the following installed:
 - Python 3.10+ (https://www.python.org/)
 - PostgreSQL 14+ (https://www.postgresql.org/)
 - Git (https://git-scm.com/)
+
+For scanned-PDF OCR only, install the Tesseract executable separately on the backend host. Text extraction and Excel processing do not require it.
 
 ## Database Setup
 
@@ -154,14 +156,9 @@ python -m pip install --upgrade pip
 pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose passlib python-dotenv pydantic python-multipart
 ```
 
-## Next Steps
+## Current Boundaries
 
-1. **Review Code**: Explore the structure in both frontend and backend
-2. **Modify Data Fields**: Add more fields to the tax profile if needed
-3. **Database Queries**: Add custom queries for analytics
-4. **API Enhancement**: Add more endpoints for ITR calculation
-5. **Frontend Components**: Create reusable components
-6. **Testing**: Write unit and integration tests
+The frontend and backend support profile management, deterministic calculations, chat explanations, document extraction/review, return selection, and ITR-1 preparation. More detail is in [README.md](../README.md) and [ROADMAP.md](ROADMAP.md). Automated tests cover selected behavior but do not establish overall tax accuracy or production readiness.
 
 ## Useful Commands
 

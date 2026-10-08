@@ -1,66 +1,59 @@
-# Document Intelligence Architecture
+# Document Processing and Tax Knowledge
 
-Document intelligence is an optional extension to the existing TaxWise workflow. A user can complete a tax profile, calculate tax, and continue toward ITR filing without creating a document record.
+Document extraction and chat retrieval are separate workflows. Chat can retrieve checked-in, assessment-year-scoped tax notes and passages from the authenticated user's processed documents. Uploaded material is never shared across users.
 
-## Boundaries
+## Document Workflow
 
 ```text
-Optional PDF intake
-        |
-        v
-DocumentProcessor: extract -> OCR -> clean -> classify -> chunk
-        |
-        +--> user confirmation gate --> TaxProfile update (future)
-        |
-        +--> EmbeddingStore (future)
-                    |
-Question --> KnowledgeRetriever --> official AY knowledge + user's documents
-                                      |
-                                      v
-                              CopilotAnswerer (future)
-                                      |
-                                      v
-                        explanation with source references
+Authenticated PDF / Excel upload
+        -> local temporary file storage
+        -> PDF text extraction / optional OCR / workbook text extraction
+        -> field candidates
+        -> user review on the Documents page
+        -> Confirm or Reject
+        -> confirmed values update the Tax Profile
 ```
 
-The deterministic tax engine remains the only source of truth for taxable income, deductions, tax, rebate, surcharge, cess, refund, and payable amount. A future copilot receives those results as read-only context and cannot calculate or overwrite them.
+The profile is not changed during upload or extraction. Confirmed fields are validated by the profile schema before persistence. Rejected candidates leave the profile unchanged. The document record stores `CONFIRMED` or `REJECTED` so reviewed candidates are not presented again as pending.
 
-## Data model
+### Implemented behavior
 
-`user_documents` stores metadata and processing state separately from `tax_profiles`:
+- `POST /api/v1/documents/upload` accepts PDF, `.xlsx`, and `.xlsm` files up to 10 MB for the authenticated user.
+- `POST /api/v1/documents/{document_id}/process` extracts page text, applies supported labels, parses monetary candidates as `Decimal`, and stores candidate values for review.
+- PDF text is extracted with `pypdf`. If the document has no extractable text, the service attempts OCR with PyMuPDF and `pytesseract`.
+- Excel workbooks are read with `openpyxl` and passed through the same field-candidate rules.
+- The `TaxWise Profile Import` sheet in `TaxWise_App_Import_Template.xlsx` maps scalar fields to the Tax Profile schema; each collection tab uses one row per profile record. Only populated cells are imported. Unknown or duplicate field names and values that fail schema validation are rejected. The older `TaxWise Import Data` label/value sheet remains supported for backward compatibility.
+- The workbook covers the TaxWise profile's scalar fields and record collections: salary, pension, house property, other income, capital gains, business income, foreign income/assets, investments, deductions, tax payments, bank accounts, and document metadata. It imports TaxWise profile data, not a complete official ITR-3 return or every government return schedule.
+- The document review screen lets the user edit the imported profile JSON before confirming it. Values are schema-validated and saved only after explicit confirmation. Existing profile fields not supplied in the workbook are retained; populated collection tabs replace that collection when confirmed.
+- The workbook includes sensitive identifiers and financial information. Keep the completed file private and review its extracted data before confirming.
+- `/documents` lists only the authenticated user's records. Deletion is owner-scoped and removes the temporary file.
+- The onboarding candidate endpoint checks ownership and pending status when given a document ID; confirmation and rejection update that document's status.
+- Extracted page text is split into bounded overlapping passages and stored separately for private chat retrieval. Queries are scoped to the authenticated owner and assessment year; rejected, failed, deleted, and unprocessed documents are excluded. Rejecting or deleting a document removes its indexed passages.
+- Document lookup answers quote matching passages and cite the filename and page. Private passages are not sent to a hosted language-model provider, and extracted document values do not affect tax calculations until confirmed in the profile.
+- The shared reference corpus consists of checked-in, reviewed, assessment-year-scoped knowledge notes. User uploads are never promoted into the shared corpus.
 
-- `user_id` is required and is used on every read and delete query.
-- `document_type`, filename, assessment year, status, page count, and processing result are tracked independently.
-- `storage_key` is reserved for an encrypted object-storage adapter; raw PDF content is not stored in application logs.
-- `processing_result` is provisional until the user confirms, edits, or rejects extracted fields.
+### Limits and operational requirements
 
-The initial API can register metadata only. The optional PDF upload/process path now performs real text extraction with `pypdf` and stores structured candidates; PDF storage, OCR, embeddings, and LLM providers remain separate adapter points rather than fake implementations.
+- OCR requires a working Tesseract executable on the server. Installing the Python `pytesseract` package alone is insufficient. If OCR cannot run, the API returns `DOCUMENT_REQUIRES_OCR`; users can upload a text-based document or enter values manually.
+- Field detection for ordinary documents uses explicit text-label patterns. It is not a general-purpose document classifier, and extracted candidates may be incomplete or wrong. The structured profile workbook instead relies on exact schema field names.
+- Review confirms or rejects the mapped candidate set as a whole; edits are available before confirmation, not as separate per-field save actions.
+- Files are stored under the operating system's temporary directory. Replace this with protected persistent storage and define retention/encryption before production use.
+- Upload processing is synchronous. Background jobs, document viewing, OCR quality measurement, and automatic document-to-profile reconciliation are not implemented.
 
-## Knowledge separation
+## Structured Tax Knowledge Base
 
-Official tax material must be indexed under an assessment-year namespace, for example `knowledge/ay_2026_27/`. Each indexed chunk carries its source, section, assessment year, and provenance. User-document chunks are stored in a separate tenant scope and are always filtered by the authenticated user ID. Retrieval should prefer official material for tax-rule questions while using user documents for personal facts.
+Notes live in `backend/knowledge/` and declare `assessment_year`, `status`, `topic`, and source-file metadata in a JSON comment. Active notes are scoped to AY 2026-27 and link their statements to existing engine rules and project references. A new year should use a separate note set after its rules and references are reviewed.
 
-## Security requirements
+`backend/services/knowledge.py` chunks active Markdown sections and ranks them using local BM25 and TF-IDF cosine similarity. Processed private document passages use the same hybrid ranking, with owner and assessment-year filters applied before scoring. Retrieval does not require a hosted embedding service or vector database. Shared tax references are curated and version-controlled; new assessment years require reviewed notes and matching engine support.
 
-- Require the existing JWT authentication for every document operation.
-- Enforce ownership in the database query, not only in the UI.
-- Validate PDF type and size at the upload boundary when binary storage is enabled.
-- Encrypt stored objects where the storage provider supports it and use opaque storage keys.
-- Keep document text and extracted personal data out of logs and error messages.
-- Delete the object, chunks, embeddings, and metadata together; support secure deletion policies.
-- Never include another user's document IDs in retrieval candidates or copilot context.
+For shared-note answers, `/api/v1/chat` may use the configured hosted language model with retrieved public notes and verified calculation facts. Private-document lookups remain deterministic and quote retrieved passages locally; they are not sent to a hosted model. Tax questions without a relevant shared note or explicitly requested personal-document passage receive an out-of-scope answer.
 
-## Processing and confirmation contract
+The calculation engine remains authoritative for taxable income, tax, rebate, surcharge, cess, taxes paid, refund, and payable amount. Knowledge notes explain existing rules; they do not compute or override amounts.
 
-`backend/services/document_processing.py` defines the future processor and embedding-store boundaries. `backend/documents/` implements the current text-PDF extraction path: pypdf page extraction, normalization through label patterns, Decimal currency parsing, candidate creation, and explicit OCR-required detection for textless PDFs. Processing returns page-aware candidates with `requires_confirmation=True`. The UI must show extracted information and require Confirm, Edit, or Reject before any profile mutation. No processor may write directly to `TaxProfile`.
+## Tests
 
-`backend/services/rag.py` defines retrieval filters and source-aware context. The required `user_id` filter and optional assessment-year/document filters make tenant isolation and year separation explicit at the interface boundary.
-
-## API surface
-
-- `POST /api/v1/documents`: register optional document metadata; returns `202` with `pending` status.
-- `POST /api/v1/documents/upload`: upload an authenticated user's PDF (10 MB maximum) to the storage adapter; returns `UPLOADED` status.
-- `POST /api/v1/documents/{document_id}/process`: extract text and structured candidates, returning `REQUIRES_CONFIRMATION`; textless PDFs return `DOCUMENT_REQUIRES_OCR` and `FAILED` status.
-- `GET /api/v1/documents`: list only the authenticated user's documents.
-- `DELETE /api/v1/documents/{document_id}`: delete only the authenticated user's document metadata; future storage adapters must delete associated content too.
-- Future: multipart upload, processing status, extracted-field review, confirmation, and source-aware copilot endpoints.
+- `backend/tests/test_document_extraction.py` covers PDF/Excel field extraction, workbook schema validation, money parsing, and OCR fallback behavior.
+- `backend/tests/test_document_api.py` covers upload, ownership, confirmation, rejection, and profile effects, including the full-profile workbook.
+- `backend/tests/test_knowledge.py` covers assessment-year-scoped hybrid retrieval and passage chunking.
+- `backend/tests/test_document_api.py` covers upload ownership, private retrieval, and index cleanup on deletion.
+- `backend/tests/test_chat_api.py` covers chat sources, unsupported questions, and deterministic fallback on provider or knowledge lookup failure.

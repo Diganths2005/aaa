@@ -9,7 +9,7 @@ from .deductions import calculate_deductions
 from .income import calculate_income, taxpayer_age_category
 from .models import RegimeComparison, TaxCalculationResult, TaxEngineError
 from .rebates import calculate_rebate
-from .regimes import slab_tax
+from .regimes import calculate_slab_breakdown, slab_tax
 from .rounding import round_rupee
 from .rules.ay_2026_27.slabs import NEW_REGIME_SLABS, OLD_REGIME_SLABS
 from .surcharge import calculate_surcharge
@@ -21,6 +21,11 @@ def paid_tax(profile: TaxProfileCreate) -> tuple[Decimal, Decimal, Decimal]:
     amounts = {"tds": ZERO, "advance_tax": ZERO, "self_assessment": ZERO}
     for payment in profile.taxes_paid:
         amounts[payment.tax_type] += payment.amount
+    if amounts["tds"] == ZERO:
+        amounts["tds"] = sum(
+            (item.tds for item in (*profile.salary_income, *profile.pension_income, *profile.other_income)),
+            ZERO,
+        )
     return tuple(amounts[key] for key in ("tds", "advance_tax", "self_assessment"))
 
 
@@ -47,11 +52,9 @@ def calculate_tax(profile: TaxProfileCreate, regime: str, allow_expanded_income:
     total_deductions = income.standard_deduction + deductions
     ordinary_taxable_income = max(ZERO, round_rupee(ordinary_gross_total_income - income.standard_deduction - deductions))
     taxable_income = ordinary_taxable_income + capital_gains.special_rate_capital_gain
-    if regime == "new":
-        ordinary_tax = slab_tax(ordinary_taxable_income, NEW_REGIME_SLABS)
-    else:
-        category = age_category
-        ordinary_tax = slab_tax(ordinary_taxable_income, OLD_REGIME_SLABS[category])
+    slabs = NEW_REGIME_SLABS if regime == "new" else OLD_REGIME_SLABS[age_category]
+    ordinary_tax = slab_tax(ordinary_taxable_income, slabs)
+    slab_calculation = calculate_slab_breakdown(ordinary_taxable_income, slabs)
     tax_before_rebate = ordinary_tax + capital_gains.special_rate_tax
 
     rebate = round_rupee(calculate_rebate(ordinary_taxable_income, ordinary_tax, regime, profile.residential_status == "resident"))
@@ -87,6 +90,8 @@ def calculate_tax(profile: TaxProfileCreate, regime: str, allow_expanded_income:
         taxable_income=taxable_income,
         tax_before_rebate=tax_before_rebate,
         rebate=rebate,
+        tax_after_rebate=tax_after_rebate,
+        slab_calculation=slab_calculation,
         surcharge=round_rupee(surcharge),
         cess=cess,
         total_tax_liability=total_liability,

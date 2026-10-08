@@ -3,7 +3,7 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from database import get_db
-from itr.pdf import generate_itr1_pdf
+from itr.pdf import generate_return_pdf
 from itr.service import check_itr1_eligibility, explain_itr_question, prepare_itr1, prepare_return, select_return
 from models.tax_profile import TaxProfile
 from models.user import User
@@ -71,4 +71,4 @@ def itr_pdf(current_request: ITRPrepareRequest, current_user: User = Depends(get
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc)) from exc
     form = preparation["itr_form"].lower().replace("-", "")
-    return Response(content=generate_itr1_pdf(preparation), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=taxwise-{form}-preparation-ay-2026-27.pdf"})
+    return Response(content=generate_return_pdf(preparation), media_type="application/pdf", headers={"Content-Disposition": f"attachment; filename=taxwise-{form}-preparation-ay-2026-27.pdf"})

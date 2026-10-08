@@ -2,23 +2,36 @@ import React, { useEffect, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
-import { chatAPI } from '@/lib/api';
+import { chatAPI, taxProfileAPI } from '@/lib/api';
 import ReturnToDashboard from '@/components/ReturnToDashboard';
 
 type Message = {
   role: 'user' | 'assistant';
   text: string;
   retryMessage?: string;
+  sources?: string[];
+  mode?: string;
+};
+
+type TaxProfileSummary = {
+  salary_income: Array<{ gross_salary: number; tds?: number }>;
+  pension_income: Array<{ amount: number; tds?: number }>;
+  other_income: Array<{ tds: number }>;
+  taxes_paid: Array<{ tax_type: string; amount: number }>;
+  deductions: Array<{ section: string; amount: number }>;
+  assessment_year: string;
 };
 
 const suggestedPrompts = [
   'Why is my tax this high?',
   'Which regime is better for me?',
-  'What deductions may I be eligible for?',
-  'Did TaxWise find anything I missed?',
-  'Am I ready to file?',
-  'What if I invest ₹50,000 more in NPS?',
+  'What is my taxable income?',
+  'How much TDS is recorded?',
+  'What are my rebate and cess amounts?',
+  'Which ITR did you recommend for me?',
 ];
+
+const formatMoney = (value: number) => `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 
 const TaxWisePage: React.FC = () => {
   const router = useRouter();
@@ -31,12 +44,22 @@ const TaxWisePage: React.FC = () => {
   ]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [profile, setProfile] = useState<TaxProfileSummary | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
 
   useEffect(() => {
     if (!isAuthenticated) {
       router.push('/login');
     }
   }, [isAuthenticated, router]);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    taxProfileAPI.getCurrentUser()
+      .then((response) => setProfile(response.data))
+      .catch(() => setProfile(null))
+      .finally(() => setProfileLoading(false));
+  }, [isAuthenticated]);
 
   if (!isAuthenticated) {
     return null;
@@ -58,6 +81,8 @@ const TaxWisePage: React.FC = () => {
         {
           role: 'assistant',
           text: payload.answer,
+          sources: payload.sources || [],
+          mode: payload.mode,
         },
       ]);
     } catch {
@@ -88,13 +113,18 @@ const TaxWisePage: React.FC = () => {
         <div className="grid gap-6 xl:grid-cols-[0.9fr_1.6fr]">
           <aside className="card p-5">
             <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">What TaxWise knows</p>
-            <div className="mt-5 space-y-3 text-sm text-[#64748B]">
-              <div className="flex items-center gap-2"><span className="text-[#047857]">✓</span> Salary confirmed from profile</div>
-              <div className="flex items-center gap-2"><span className="text-[#047857]">✓</span> TDS confirmed</div>
-              <div className="flex items-center gap-2"><span className="text-[#047857]">✓</span> 80C-related deductions reviewed</div>
-              <div className="flex items-center gap-2"><span className="text-[#F59E0B]">⚠</span> Health insurance needs confirmation</div>
-              <div className="flex items-center gap-2"><span className="text-[#64748B]">○</span> Bank interest missing</div>
-            </div>
+            {profileLoading ? (
+              <p className="mt-5 text-sm text-[#64748B]">Loading confirmed profile facts…</p>
+            ) : profile ? (
+              <dl className="mt-5 space-y-3 text-sm">
+                <div><dt className="text-[#64748B]">Salary and pension</dt><dd className="font-medium text-[#0F172A]">{formatMoney(profile.salary_income.reduce((sum, item) => sum + Number(item.gross_salary || 0), 0) + profile.pension_income.reduce((sum, item) => sum + Number(item.amount || 0), 0))}</dd></div>
+                <div><dt className="text-[#64748B]">TDS recorded as tax paid</dt><dd className="font-medium text-[#0F172A]">{formatMoney(profile.taxes_paid.filter((item) => item.tax_type === 'tds').reduce((sum, item) => sum + Number(item.amount || 0), 0) || profile.salary_income.reduce((sum, item) => sum + Number(item.tds || 0), 0) + profile.pension_income.reduce((sum, item) => sum + Number(item.tds || 0), 0) + profile.other_income.reduce((sum, item) => sum + Number(item.tds || 0), 0))}</dd></div>
+                <div><dt className="text-[#64748B]">Deduction claims in profile</dt><dd className="font-medium text-[#0F172A]">{formatMoney(profile.deductions.reduce((sum, item) => sum + Number(item.amount || 0), 0))} across {profile.deductions.length} claims</dd></div>
+                <div><dt className="text-[#64748B]">Assessment year</dt><dd className="font-medium text-[#0F172A]">{profile.assessment_year}</dd></div>
+              </dl>
+            ) : (
+              <p className="mt-5 text-sm text-[#64748B]">No saved Tax Profile was found. Create one to get personal calculation answers.</p>
+            )}
 
             <div className="mt-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Suggested prompts</p>
@@ -124,7 +154,16 @@ const TaxWisePage: React.FC = () => {
                 {messages.map((message, index) => (
                   <div key={`${message.role}-${index}`} className={`flex ${message.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                     <div className={`max-w-[85%] rounded-2xl px-4 py-3 ${message.role === 'user' ? 'bg-[#064E3B] text-white' : 'border border-border bg-[#F8FAFC] text-[#0F172A]'}`}>
-                      <p className="whitespace-pre-wrap text-sm leading-6">{message.text}</p>
+                    {message.role === 'assistant' && <p className="mb-2 text-[10px] font-semibold uppercase tracking-[0.14em] text-[#047857]">{message.mode === 'assistant' ? 'AI explanation' : 'TaxWise explanation'}</p>}
+                    <p className="whitespace-pre-wrap text-sm leading-6">{message.text}</p>
+                    {message.sources && message.sources.length > 0 && (
+                      <details className="mt-3 border-t border-border pt-2 text-xs text-[#64748B]">
+                        <summary className="cursor-pointer font-semibold">📚 Sources used</summary>
+                        <ul className="mt-2 list-inside list-disc space-y-1">
+                          {message.sources.map((source) => <li key={source}>{source}</li>)}
+                        </ul>
+                      </details>
+                    )}
                       {message.retryMessage && (
                         <button
                           onClick={() => handleSend(message.retryMessage)}

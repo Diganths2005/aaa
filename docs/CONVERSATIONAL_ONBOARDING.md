@@ -20,7 +20,7 @@ Negative answers mark optional branches skipped. Positive answers complete the b
 
 `POST /api/v1/onboarding/message` returns the assistant response, current field, candidate values, confirmation requirement, progress, next field, and profile. Candidates are not saved. `POST /api/v1/onboarding/confirm` accepts `confirm` or `reject`; only confirmation persists a candidate and returns the updated profile for the left form. Manual left-panel edits continue through the existing profile `PUT` route, so the next session read sees the latest database value.
 
-Document candidates use the same confirmation path through `POST /api/v1/onboarding/document-candidate`. PDF registration still only records metadata; extraction and OCR are not faked.
+Uploaded documents are processed by the document API before their candidate values are staged through `POST /api/v1/onboarding/document-candidate`. The Documents page displays the candidates and requires explicit Confirm or Reject. Confirmation checks the owned pending document, validates the profile update, and records the review status; rejection leaves the profile unchanged. OCR is attempted only when a Tesseract executable is installed.
 
 ## Sources and safety
 

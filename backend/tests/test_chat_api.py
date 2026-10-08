@@ -42,6 +42,49 @@ def test_chat_rejects_non_tax_question():
     assert "personal tax assistant" in response.json()["answer"].lower()
 
 
+def test_chat_answers_knowledge_question_with_assessment_year_source():
+    headers = authenticated_headers()
+    response = client.post("/api/v1/chat", headers=headers, json={"message": "How does the rebate work under the new regime?"})
+
+    assert response.status_code == 200
+    assert "rebate" in response.json()["answer"].lower()
+    assert "regime is currently better" not in response.json()["answer"].lower()
+    assert "section 87a" in response.json()["answer"].lower()
+    assert "#" not in response.json()["answer"]
+    assert "concepts/rebate.md" in response.json()["sources"]
+
+
+def test_chat_refuses_tax_questions_outside_knowledge_scope(monkeypatch):
+    class UnexpectedClient:
+        def __init__(self, **kwargs):
+            raise AssertionError("unsupported questions must not reach the model provider")
+
+    fake_openai = types.ModuleType("openai")
+    fake_openai.OpenAI = UnexpectedClient
+    monkeypatch.setitem(sys.modules, "openai", fake_openai)
+    monkeypatch.setattr(chat_route, "GITHUB_MODELS_TOKENS", ["test-token"])
+    headers = authenticated_headers()
+    response = client.post("/api/v1/chat", headers=headers, json={"message": "How is cryptocurrency taxed?"})
+
+    assert response.status_code == 200
+    assert "outside" in response.json()["answer"].lower()
+    assert response.json()["sources"] == []
+
+
+def test_knowledge_lookup_failure_does_not_break_deterministic_tax_answer(monkeypatch):
+    def fail_retrieval(self, query, filters, limit=5):
+        raise OSError("knowledge files unavailable")
+
+    monkeypatch.setattr(chat_route.LocalTaxKnowledgeBase, "retrieve", fail_retrieval)
+    headers = authenticated_headers()
+    create_profile(headers)
+
+    response = chat_answer(headers, "How much tax do I have to pay?")
+
+    assert response["mode"] == "deterministic"
+    assert "tax liability" in response["answer"].lower()
+
+
 def test_chat_uses_tax_profile_for_regime_question():
     headers = authenticated_headers()
     profile = client.post(
@@ -143,6 +186,55 @@ def test_chat_uses_deterministic_tax_calculation():
     assert "₹" in answer
 
 
+def test_chat_explains_tax_amount_from_engine_breakdown():
+    headers = authenticated_headers()
+    create_profile(headers)
+
+    response = chat_answer(headers, "Why is my tax this amount?")
+    answer = response["answer"].lower()
+
+    for stage in ("gross total income", "deductions", "taxable income", "slab calculation", "rebate", "cess", "final tax liability", "taxes already paid", "refund", "payable"):
+        assert stage in answer
+
+
+def test_chat_uses_engine_facts_for_taxable_income_and_tds():
+    headers = authenticated_headers()
+    create_profile(headers)
+
+    taxable_income = chat_answer(headers, "What is my taxable income?")["answer"]
+    tds = chat_answer(headers, "How much TDS have I paid?")["answer"]
+
+    assert "taxable income" in taxable_income.lower()
+    assert "₹" in taxable_income
+    assert "₹20,000" in tds
+
+
+def test_chat_answers_profile_salary_rebate_and_cess_from_engine():
+    headers = authenticated_headers()
+    create_profile(headers)
+
+    salary = chat_answer(headers, "How much salary is in my profile?")["answer"]
+    rebate = chat_answer(headers, "What is my rebate?")["answer"]
+    cess = chat_answer(headers, "What is my cess?")["answer"]
+
+    assert "₹1,000,000" in salary
+    assert "rebate" in rebate.lower() and "₹" in rebate
+    assert "cess" in cess.lower() and "₹" in cess
+
+
+def test_chat_reports_salary_source_tds_when_no_tax_payment_entry_exists():
+    headers = authenticated_headers()
+    create_profile(
+        headers,
+        salary_income=[{"employer_name": "Acme", "gross_salary": 1000000, "standard_deduction": 0, "professional_tax": 0, "tds": 25000}],
+        taxes_paid=[],
+    )
+
+    answer = chat_answer(headers, "How much TDS is recorded?")["answer"]
+
+    assert "₹25,000" in answer
+
+
 def test_chat_explains_itr_selection():
     headers = authenticated_headers()
     create_profile(headers, business_income=[{"business_name": "Consulting", "nature_of_business": "Advisory", "gross_receipts": 500000, "net_profit_or_loss": 300000}])
@@ -157,7 +249,7 @@ def test_chat_does_not_expose_internal_metadata():
     response = chat_answer(headers, "Why is my deduction zero?")
     user_text = response["answer"] + " " + " ".join(response["sources"])
     lowered = user_text.lower()
-    for forbidden in ("gemini", "rag", "ay_2026_27.md", "system prompt", "retrieval", "tax engine", "deterministic"):
+    for forbidden in ("gemini", "system prompt", "retrieval", "tax engine", "deterministic"):
         assert forbidden not in lowered
 
 
@@ -182,3 +274,25 @@ def test_chat_keeps_verified_answer_when_model_provider_fails(monkeypatch):
     assert answer["mode"] == "deterministic"
     assert "tax liability" in answer["answer"].lower()
     assert "unable to generate an ai answer" not in answer["answer"].lower()
+
+
+def test_chat_rejects_model_answer_with_unverified_amount(monkeypatch):
+    class FakeCompletions:
+        @staticmethod
+        def create(**kwargs):
+            return type("FakeCompletion", (), {"choices": [type("Choice", (), {"message": type("Message", (), {"content": "Your calculated tax liability is ₹999,999. The confirmed profile and deterministic calculation support this explanation, and no further action is needed before filing your return."})()})()]})()
+
+    class FakeClient:
+        def __init__(self, **kwargs):
+            self.chat = type("Chat", (), {"completions": FakeCompletions})()
+
+    monkeypatch.setattr(chat_route, "GITHUB_MODELS_TOKENS", ["fake-token"])
+    monkeypatch.setattr("openai.OpenAI", FakeClient)
+    headers = authenticated_headers()
+    create_profile(headers)
+
+    response = chat_answer(headers, "How much tax do I have to pay?")
+
+    assert response["mode"] == "deterministic"
+    assert "₹999,999" not in response["answer"]
+    assert "tax liability" in response["answer"].lower()

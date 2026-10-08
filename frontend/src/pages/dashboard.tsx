@@ -1,8 +1,9 @@
-import React, { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { useAuthStore } from '@/store/auth';
-import { documentsAPI, itrAPI, taxAPI, taxProfileAPI } from '@/lib/api';
+import { deductionsAPI, documentsAPI, itrAPI, taxAPI, taxProfileAPI } from '@/lib/api';
+import { getProfileCompletion, ProfileCompletion } from '@/lib/profile-completion';
 
 type UserDocument = {
   id: string;
@@ -13,15 +14,25 @@ type UserDocument = {
   processing_result?: { candidates?: Array<{ field: string; value: string }> };
 };
 
+type DeductionOpportunity = {
+  section: string;
+  name: string;
+  status: string;
+  explanation: string;
+  requiredInformation: string[];
+};
+
 const navItems = [
   { label: 'Home', href: '/dashboard', icon: '🏠', active: true },
   { label: 'What-If', href: '/what-if', icon: '🧮', active: false },
   { label: 'Compare Regimes', href: '/compare-regimes', icon: '⚖', active: false },
   { label: 'TaxWise', href: '/taxwise', icon: '💬', active: false },
   { label: 'Documents', href: '/documents', icon: '📄', active: false },
+  { label: 'Reconciliation', href: '/reconciliation', icon: '🔎', active: false },
+  { label: 'Tax Calculation', href: '/tax-calculation', icon: '🧮', active: false },
   { label: 'Deductions', href: '/deductions', icon: '💰', active: false },
-  { label: 'My Tax Profile', href: '/tax-profile', icon: '👤', active: false },
-  { label: 'File ITR', href: '/itr-preview', icon: '🧾', active: false },
+  { label: 'Taxpayer Profile', href: '/taxpayer-profile', icon: '👤', active: false },
+  { label: 'ITR Preparation', href: '/itr-selection', icon: '🧾', active: false },
 ];
 
 const DashboardPage: React.FC = () => {
@@ -30,12 +41,14 @@ const DashboardPage: React.FC = () => {
   const [authHydrated, setAuthHydrated] = useState(false);
   const [documents, setDocuments] = useState<UserDocument[]>([]);
   const [documentMessage, setDocumentMessage] = useState('');
-  const [itrMessage, setItrMessage] = useState('');
-  const [checkingItr, setCheckingItr] = useState(false);
   const [profileReady, setProfileReady] = useState<boolean | null>(null);
+  const [profileCompletion, setProfileCompletion] = useState<ProfileCompletion>({ percent: 0, missing: [], minimumReady: false });
+  const [dashboardError, setDashboardError] = useState('');
   const [profile, setProfile] = useState<any>(null);
   const [comparison, setComparison] = useState<any>(null);
   const [itrSelection, setItrSelection] = useState<any>(null);
+  const [deductionOpportunities, setDeductionOpportunities] = useState<DeductionOpportunity[]>([]);
+  const [deductionOpportunityError, setDeductionOpportunityError] = useState('');
 
   useEffect(() => {
     hydrate();
@@ -50,17 +63,39 @@ const DashboardPage: React.FC = () => {
     }
 
     const loadProfile = async () => {
+      let savedProfile;
       try {
         const response = await taxProfileAPI.getCurrentUser();
-        setProfile(response.data);
-        const comparisonResponse = await taxAPI.compareRegimes(response.data, true);
-        setComparison(comparisonResponse.data);
-        const itrResponse = await itrAPI.selection();
-        setItrSelection(itrResponse.data);
-        setProfileReady(true);
+        savedProfile = response.data;
       } catch {
         setProfileReady(false);
         router.push('/onboarding');
+        return;
+      }
+      setProfile(savedProfile);
+      const completion = getProfileCompletion(savedProfile, documents.length);
+      setProfileCompletion(completion);
+      setProfileReady(true);
+      if (!completion.minimumReady) return;
+
+      try {
+        const [comparisonResponse, itrResponse] = await Promise.all([
+          taxAPI.compareRegimes(savedProfile, true),
+          itrAPI.selection(),
+        ]);
+        setComparison(comparisonResponse.data);
+        setItrSelection(itrResponse.data);
+
+        const activeRegime = comparisonResponse.data.recommended_regime === 'old' ? 'old' : 'new';
+        try {
+          const discoveryResponse = await deductionsAPI.discover(activeRegime);
+          setDeductionOpportunities(discoveryResponse.data || []);
+          setDeductionOpportunityError('');
+        } catch {
+          setDeductionOpportunityError('Deduction opportunities are temporarily unavailable.');
+        }
+      } catch (error: any) {
+        setDashboardError(error.response?.data?.detail || 'Tax calculations are temporarily unavailable. Your saved profile has not been changed.');
       }
     };
 
@@ -69,18 +104,25 @@ const DashboardPage: React.FC = () => {
 
   useEffect(() => {
     if (authHydrated && isAuthenticated) {
-      documentsAPI.list().then((response) => setDocuments(response.data)).catch(() => undefined);
+      documentsAPI.list().then((response) => {
+        const loaded = response.data || [];
+        setDocuments(loaded);
+        if (profile) setProfileCompletion(getProfileCompletion(profile, loaded.length));
+      }).catch(() => setDocumentMessage('Document status is temporarily unavailable.'));
     }
-  }, [authHydrated, isAuthenticated]);
+  }, [authHydrated, isAuthenticated, profile]);
 
-  const formatCurrency = (amount: number | string | undefined) => `₹${Number(amount || 0).toLocaleString('en-IN')}`;
+  const formatCurrency = (amount: number | string | undefined) => amount === undefined || amount === null
+    ? '—'
+    : `₹${Number(amount).toLocaleString('en-IN')}`;
 
   const recommendedResult = comparison?.recommended_regime === 'old' ? comparison.old_regime : comparison?.new_regime;
-  const confirmedDeductions = useMemo(
-    () => (profile?.deductions || []).reduce((sum: number, item: any) => sum + Number(item.amount || 0), 0),
-    [profile]
+  const reviewableOpportunities = useMemo(
+    () => deductionOpportunities
+      .filter((item) => ['UNKNOWN', 'NEEDS_INFORMATION', 'POTENTIALLY_ELIGIBLE', 'ELIGIBLE'].includes(item.status))
+      .slice(0, 3),
+    [deductionOpportunities],
   );
-
   const incomeBreakdown = useMemo(() => {
     if (!profile) return [] as Array<{ name: string; amount: number; percent: number }>;
 
@@ -103,11 +145,11 @@ const DashboardPage: React.FC = () => {
 
   const metrics = [
     { label: 'Gross Total Income', value: formatCurrency(recommendedResult?.gross_total_income), change: 'Current calculation' },
-    { label: 'Total Deductions', value: formatCurrency(confirmedDeductions), change: 'Confirmed profile deductions' },
     { label: 'Taxable Income', value: formatCurrency(recommendedResult?.taxable_income), change: 'Current calculation' },
-    { label: 'Estimated Tax', value: formatCurrency(recommendedResult?.total_tax_liability), change: `${comparison?.recommended_regime || 'new'} regime` },
-    { label: 'Taxes Paid', value: formatCurrency(recommendedResult?.total_tax_paid), change: 'Current calculation' },
-    { label: 'Refund / Payable', value: recommendedResult?.refund > 0 ? formatCurrency(recommendedResult.refund) : formatCurrency(recommendedResult?.balance_payable), change: recommendedResult?.refund > 0 ? 'Refund' : 'Payable' },
+    { label: 'Old regime tax', value: formatCurrency(comparison?.old_regime?.total_tax_liability), change: 'TaxWise Engine' },
+    { label: 'New regime tax', value: formatCurrency(comparison?.new_regime?.total_tax_liability), change: 'TaxWise Engine' },
+    { label: 'Recommended regime', value: comparison?.recommended_regime ? `${comparison.recommended_regime} regime` : '—', change: 'TaxWise Engine' },
+    { label: 'Estimated saving', value: formatCurrency(comparison?.estimated_saving), change: 'TaxWise Engine' },
   ];
 
   const insights = useMemo(() => {
@@ -145,53 +187,17 @@ const DashboardPage: React.FC = () => {
     router.push('/login');
   };
 
-  const handleDocumentSelection = async (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    const supported = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.xlsx') || file.name.toLowerCase().endsWith('.xlsm');
-    if (!supported) {
-      setDocumentMessage('Please choose a PDF or Excel document.');
-      return;
-    }
-
-    try {
-      const uploaded = await documentsAPI.upload(file, '2026-27');
-      const processed = await documentsAPI.process(uploaded.data.id);
-      setDocuments((current) => [{ ...uploaded.data, status: processed.data.status }, ...current]);
-      setDocumentMessage(processed.data.candidates?.length ? 'Document processed. Open Documents to review extracted values before confirmation.' : 'Document processed, but no supported tax fields were found.');
-    } catch (error: any) {
-      const detail = error.response?.data?.detail;
-      setDocumentMessage(detail === 'DOCUMENT_REQUIRES_OCR' ? 'This PDF is scanned and needs OCR, which is not available yet.' : 'Document processing failed. No profile data was changed.');
-    }
-  };
-
-  const handleFileItr = async () => {
-    setCheckingItr(true);
-    setItrMessage("Let's check your ITR eligibility.");
-    try {
-      const response = await itrAPI.selection();
-      if (response.data.eligible && response.data.recommended_itr) {
-        setItrMessage(`Based on your current Tax Profile, ${response.data.recommended_itr} is recommended.`);
-      } else {
-        const reasons = [...(response.data.reasons || []), ...(response.data.missing_information || []), ...(response.data.unsupported_conditions || [])];
-        setItrMessage(`An ITR form is not ready yet. ${reasons.join(' ')}`);
-      }
-    } catch (error: any) {
-      setItrMessage(error.response?.data?.detail || 'Complete and save your Tax Profile before preparing a return.');
-    } finally {
-      setCheckingItr(false);
-    }
-  };
-
   const nextSteps = useMemo(() => {
     const items = [
-      { label: 'Review tax profile', href: '/tax-profile', enabled: !!profile },
+      { label: 'View taxpayer profile', href: '/taxpayer-profile', enabled: !!profile },
+      { label: 'Edit tax profile', href: '/tax-profile', enabled: !!profile },
       { label: 'Upload documents', href: '/documents', enabled: true },
+      { label: 'Review reconciliation', href: '/reconciliation', enabled: !!profile },
+      { label: 'View tax calculation', href: '/tax-calculation', enabled: !!comparison },
       { label: 'Compare regimes', href: '/compare-regimes', enabled: !!comparison },
       { label: 'Run what-if simulation', href: '/what-if', enabled: !!profile },
       { label: 'Ask TaxWise', href: '/taxwise', enabled: true },
-      { label: 'Review ITR', href: '/itr-preview', enabled: !!profile },
+      { label: 'Check ITR eligibility', href: '/itr-selection', enabled: !!profile },
     ];
 
     return items;
@@ -203,7 +209,7 @@ const DashboardPage: React.FC = () => {
       { label: 'Documents', done: documents.length > 0, detail: documents.length ? `${documents.length} uploaded` : 'Upload a PDF' },
       { label: 'Tax calc', done: !!comparison, detail: comparison ? 'Ready' : 'Pending' },
       { label: 'Deductions', done: !!profile && (profile.deductions?.length || 0) > 0, detail: profile && (profile.deductions?.length || 0) > 0 ? 'Review available' : 'Check eligibility' },
-      { label: 'ITR', done: !!itrSelection?.eligible, detail: itrSelection?.recommended_itr || (profile ? 'Review needed' : 'Not started') },
+      { label: 'ITR', done: !!itrSelection?.preparation_supported && !!itrSelection?.eligible, detail: itrSelection?.recommended_itr ? (itrSelection.preparation_supported ? `${itrSelection.recommended_itr}${itrSelection.recommended_itr === 'ITR-3' ? ' summary ready' : ' ready'}` : `${itrSelection.recommended_itr} selected, preparation unavailable`) : (profile ? 'Review needed' : 'Not started') },
     ];
 
     return completed;
@@ -232,6 +238,24 @@ const DashboardPage: React.FC = () => {
 
   if (!authHydrated || !isAuthenticated) {
     return null;
+  }
+  if (profileReady === null) return null;
+
+  if (profile && !profileCompletion.minimumReady) {
+    return (
+      <main className="min-h-screen bg-[#F8FAFC] px-4 py-12 text-[#0F172A]">
+        <section className="mx-auto max-w-3xl rounded-[28px] border border-[#E2E8F0] bg-white p-7 shadow-soft sm:p-10">
+          <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">TaxWise · Profile setup</p>
+          <h1 className="mt-4 text-3xl font-bold">Complete your Tax Profile first</h1>
+          <p className="mt-3 text-[#64748B]">Personalized tax calculations are locked until the minimum profile details are saved. Nothing is estimated from empty or default fields.</p>
+          <div className="mt-6 flex items-center justify-between"><h2 className="font-semibold">Profile completion</h2><strong className="text-[#047857]">{profileCompletion.percent}%</strong></div>
+          <div className="mt-2 h-3 overflow-hidden rounded-full bg-[#E2E8F0]" role="progressbar" aria-valuenow={profileCompletion.percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full bg-[#047857] transition-all" style={{ width: `${profileCompletion.percent}%` }} /></div>
+          {profileCompletion.missing.length > 0 && <><h3 className="mt-6 text-sm font-semibold">Information not yet provided</h3><ul className="mt-2 list-inside list-disc space-y-1 text-sm text-[#64748B]">{profileCompletion.missing.map((item) => <li key={item}>{item}</li>)}</ul></>}
+          <div className="mt-7 flex flex-wrap gap-3"><Link href="/tax-profile" className="rounded-xl bg-[#047857] px-4 py-3 text-sm font-semibold text-white">Complete Profile</Link><Link href="/documents" className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm font-semibold">Upload Documents</Link><button type="button" onClick={handleLogout} className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-3 text-sm font-semibold">Log out</button></div>
+          <p className="mt-6 text-xs text-[#64748B]">Required before calculation: personal identity details and at least one saved income source.</p>
+        </section>
+      </main>
+    );
   }
 
   return (
@@ -267,14 +291,18 @@ const DashboardPage: React.FC = () => {
           </div>
         </aside>
 
-        <main className="flex-1 p-4 sm:p-6 lg:p-8">
+        <main className="flex-1 p-4 pb-24 sm:p-6 lg:p-8">
           <div className="mb-6 flex flex-col gap-4 border-b border-border pb-6 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Good morning, {user?.firstName || 'Taxpayer'}</p>
-              <h1 className="mt-2 text-3xl font-bold text-[#0F172A]">Your tax journey is ready.</h1>
+              <h1 className="mt-2 text-3xl font-bold text-[#0F172A]">Tax overview · AY {profile?.assessment_year || '2026-27'}</h1>
+              <p className="mt-2 text-sm text-[#64748B]">A clear summary of your calculation, filing readiness, and next actions.</p>
             </div>
-            <div className="flex items-center gap-3">
-              <button className="chip">{profile ? 'Profile synced' : 'Profile pending'}</button>
+            <div className="print-hidden flex flex-wrap items-center gap-3">
+              <span className="chip">{profile ? 'Profile synced' : 'Profile pending'}</span>
+              <button type="button" onClick={() => window.print()} className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-semibold text-[#334155] hover:bg-[#F1F5F9]">
+                Print report
+              </button>
               <Link href="/taxwise" className="rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#065F46]">Ask TaxWise</Link>
             </div>
           </div>
@@ -296,6 +324,17 @@ const DashboardPage: React.FC = () => {
               ))}
             </div>
           </div>
+
+          {dashboardError && <p className="mb-6 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-900" role="alert">{dashboardError}</p>}
+
+          <section className="mb-6 card p-5" aria-label="Tax profile completeness">
+            <div className="flex flex-wrap items-center justify-between gap-4">
+              <div><p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Tax Profile</p><p className="mt-1 text-xl font-bold">{profileCompletion.percent}% Complete</p></div>
+              <Link href="/tax-profile" className="rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white">Complete Profile</Link>
+            </div>
+            <div className="mt-3 h-2.5 overflow-hidden rounded-full bg-[#E2E8F0]" role="progressbar" aria-valuenow={profileCompletion.percent} aria-valuemin={0} aria-valuemax={100}><div className="h-full rounded-full bg-[#047857]" style={{ width: `${profileCompletion.percent}%` }} /></div>
+            {profileCompletion.missing.length > 0 && <p className="mt-3 text-sm text-[#64748B]">Still to provide: {profileCompletion.missing.join(' · ')}</p>}
+          </section>
 
           {profile && (
             <div className="mb-6 grid gap-4 sm:grid-cols-2">
@@ -459,19 +498,96 @@ const DashboardPage: React.FC = () => {
             </div>
           )}
 
+          <section className="mt-8 grid gap-6 xl:grid-cols-3" aria-label="Planning and preparation">
+            <article className="card p-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Tax-saving opportunities</p>
+              <h2 className="mt-2 text-xl font-bold">Deductions to review</h2>
+              {deductionOpportunityError ? (
+                <p className="mt-4 text-sm text-[#64748B]">{deductionOpportunityError}</p>
+              ) : reviewableOpportunities.length ? (
+                <ul className="mt-4 space-y-3">
+                  {reviewableOpportunities.map((item) => (
+                    <li key={item.section} className="rounded-xl border border-border bg-[#F8FAFC] p-3">
+                      <div className="flex items-start justify-between gap-3">
+                        <p className="text-sm font-semibold">{item.name}</p>
+                        <span className="shrink-0 rounded-full bg-amber-50 px-2 py-1 text-[10px] font-semibold uppercase text-amber-800">
+                          {item.status.replace(/_/g, ' ')}
+                        </span>
+                      </div>
+                      <p className="mt-1 text-xs text-[#64748B]">{item.section} · {item.requiredInformation[0] || item.explanation}</p>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-4 text-sm text-[#64748B]">
+                  {profile ? 'No additional deduction review items were identified from the current profile.' : 'Complete your profile to see relevant deduction opportunities.'}
+                </p>
+              )}
+              <Link href="/deductions" className="print-hidden mt-5 inline-flex text-sm font-semibold text-[#047857] hover:text-[#065F46]">
+                Review all deductions <span className="ml-1" aria-hidden="true">→</span>
+              </Link>
+            </article>
+
+            <article className="card flex flex-col p-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">What-if planning</p>
+              <h2 className="mt-2 text-xl font-bold">Explore a tax scenario</h2>
+              <p className="mt-3 text-sm leading-6 text-[#64748B]">
+                Compare hypothetical income, deduction, or tax-payment changes without changing your saved profile.
+              </p>
+              <Link href="/what-if" className="print-hidden mt-auto inline-flex self-start rounded-xl bg-[#064E3B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#022C22]">
+                Start simulation
+              </Link>
+            </article>
+
+            <article className="card flex flex-col p-6">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">ITR preparation</p>
+              <h2 className="mt-2 text-xl font-bold">{itrSelection?.recommended_itr || 'Check your return'}</h2>
+              <p className="mt-3 text-sm leading-6 text-[#64748B]">
+                {itrSelection?.preparation_supported
+                  ? `${itrSelection.recommended_itr} preparation is currently supported for this profile.`
+                  : itrSelection?.recommended_itr
+                    ? `${itrSelection.recommended_itr} may match your profile; preparation support is limited.`
+                    : 'Review your return selection and any profile details that are still needed.'}
+              </p>
+              {itrSelection?.unsupported_conditions?.length > 0 && (
+                <p className="mt-2 text-xs text-[#64748B]">{itrSelection.unsupported_conditions[0]}</p>
+              )}
+              <Link href="/itr-selection" className="print-hidden mt-auto inline-flex self-start rounded-xl border border-[#A7F3D0] bg-[#ECFDF5] px-4 py-2.5 text-sm font-semibold text-[#047857] hover:bg-[#DCFCE7]">
+                Check ITR eligibility
+              </Link>
+            </article>
+          </section>
+
+          <section className="mt-6 card flex flex-col gap-4 border-[#D1FAE5] bg-[#F0FDF4] p-6 sm:flex-row sm:items-center sm:justify-between" aria-label="AI tax assistant">
+            <div>
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">AI Tax Assistant</p>
+              <h2 className="mt-2 text-xl font-bold">Have a question about this summary?</h2>
+              <p className="mt-2 max-w-2xl text-sm text-[#475569]">Ask about your confirmed tax calculation, deductions, regime comparison, or supported filing steps.</p>
+            </div>
+            <Link href="/taxwise" className="print-hidden inline-flex shrink-0 items-center justify-center rounded-xl bg-[#047857] px-5 py-3 text-sm font-semibold text-white hover:bg-[#065F46]">
+              Ask TaxWise <span className="ml-2" aria-hidden="true">→</span>
+            </Link>
+          </section>
+
           <section className="mt-8 card p-6" aria-labelledby="documents-heading">
             <div className="flex flex-col gap-4 border-b border-border pb-5 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Documents</p>
                 <h3 id="documents-heading" className="mt-2 text-xl font-bold text-[#0F172A]">My documents</h3>
               </div>
-              <label className="inline-flex cursor-pointer items-center justify-center rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#065F46]">
-                <span>Upload PDF or Excel</span>
-                <input type="file" accept="application/pdf,.xlsx,.xlsm" className="sr-only" onChange={handleDocumentSelection} />
-              </label>
+              <Link href="/documents" className="print-hidden inline-flex items-center justify-center rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#065F46]">View Documents</Link>
             </div>
 
             {documentMessage && <p className="mt-4 text-sm text-[#64748B]" role="status">{documentMessage}</p>}
+
+            <div className="mt-5 grid gap-3 sm:grid-cols-4">
+              {[
+                ['Uploaded', documents.length],
+                ['Processed', documents.filter((item) => ['PROCESSED', 'REQUIRES_CONFIRMATION', 'CONFIRMED', 'REJECTED'].includes(item.status)).length],
+                ['Review required', documents.filter((item) => item.status === 'REQUIRES_CONFIRMATION').length],
+                ['Errors', documents.filter((item) => item.status === 'FAILED').length],
+              ].map(([label, count]) => <div key={label} className="rounded-xl bg-[#F8FAFC] p-3"><p className="text-xs text-[#64748B]">{label}</p><p className="mt-1 text-lg font-bold">{count}</p></div>)}
+            </div>
 
             {documents.length > 0 ? (
               <ul className="mt-5 space-y-3">
@@ -484,10 +600,11 @@ const DashboardPage: React.FC = () => {
                     {document.processing_result?.candidates?.length ? (
                       <div className="mt-3 grid gap-1 border-t border-border pt-3 text-xs text-[#475569] sm:grid-cols-2">
                         {document.processing_result.candidates.map((candidate, index) => (
-                          <span key={`${candidate.field}-${index}`}><strong>{candidate.field.replace(/_/g, ' ')}:</strong> {candidate.value}</span>
+                          <span key={`${candidate.field}-${index}`}><strong>{candidate.field.replace(/_/g, ' ')}:</strong> {candidate.value} · Document extracted</span>
                         ))}
                       </div>
                     ) : null}
+                    {document.status === 'REQUIRES_CONFIRMATION' && <Link href={`/document-review/${document.id}`} className="print-hidden mt-3 inline-flex text-xs font-semibold text-[#047857]">Review extracted fields →</Link>}
                   </li>
                 ))}
               </ul>
@@ -497,33 +614,28 @@ const DashboardPage: React.FC = () => {
               </div>
             )}
 
-            <div className="mt-6 flex flex-col gap-3 sm:flex-row">
-              <button onClick={handleFileItr} disabled={checkingItr} className="rounded-xl bg-[#064E3B] px-4 py-2.5 text-sm font-semibold text-white hover:bg-[#022C22] disabled:opacity-60">
-                {checkingItr ? 'Checking ITR readiness...' : 'Check ITR readiness'}
-              </button>
-              {itrMessage && (
-                <Link href="/itr-preview" className="rounded-xl border border-[#10B981] bg-[#ECFDF5] px-4 py-2.5 text-sm font-semibold text-[#047857] hover:bg-[#DCFCE7]">
-                  Review ITR
-                </Link>
-              )}
+            <div className="mt-5 flex flex-wrap gap-3">
+              <Link href="/reconciliation" className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-semibold">View Reconciliation</Link>
+              <Link href="/itr-selection" className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-semibold">ITR Preparation</Link>
             </div>
-            {itrMessage && <p className="mt-4 text-sm text-[#64748B]">{itrMessage}</p>}
           </section>
         </main>
       </div>
 
-      <nav className="fixed inset-x-0 bottom-0 z-40 border-t border-[#E2E8F0] bg-white/95 px-2 py-2 backdrop-blur sm:hidden">
+      <nav className="print-hidden fixed inset-x-0 bottom-0 z-40 border-t border-[#E2E8F0] bg-white/95 px-2 py-2 backdrop-blur sm:hidden">
         <div className="flex items-center justify-around gap-1">
-          {navItems.slice(0, 5).map((item) => (
-            <Link
-              key={item.label}
-              href={item.href}
-              className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium ${item.active ? 'bg-[#ECFDF5] text-[#047857]' : 'text-[#64748B]'}`}
-            >
-              <span>{item.icon}</span>
-              <span className="truncate">{item.label === 'My Tax Profile' ? 'Profile' : item.label}</span>
-            </Link>
-          ))}
+          {[navItems[0], navItems[4], navItems[5], navItems[8], navItems[9]]
+            .filter((item): item is (typeof navItems)[number] => item !== undefined)
+            .map((item) => (
+              <Link
+                key={item.label}
+                href={item.href}
+                className={`flex min-w-0 flex-1 flex-col items-center gap-1 rounded-xl px-2 py-2 text-[10px] font-medium ${item.active ? 'bg-[#ECFDF5] text-[#047857]' : 'text-[#64748B]'}`}
+              >
+                <span>{item.icon}</span>
+                <span className="truncate">{item.label === 'Taxpayer Profile' ? 'Profile' : item.label}</span>
+              </Link>
+            ))}
         </div>
       </nav>
     </div>

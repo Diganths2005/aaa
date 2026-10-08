@@ -8,6 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from database import get_db
+from models.document import UserDocument, UserDocumentChunk
 from models.onboarding import OnboardingSession
 from models.tax_profile import TaxProfile
 from models.user import User
@@ -158,14 +159,30 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
     candidate = state.get("pending_candidate")
     if not candidate:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="There is no pending candidate to confirm")
+    document_id = state.pop("pending_document_id", None)
+    document = None
+    if document_id:
+        document = db.query(UserDocument).filter(
+            UserDocument.id == document_id,
+            UserDocument.user_id == current_user.id,
+        ).first()
+        if not document or document.status != "REQUIRES_CONFIRMATION":
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document review is no longer available")
     if request.action == "confirm":
         profile = persist_candidate(session, candidate, current_user, db)
         session.state = apply_candidate(state, candidate, "confirm")
         message_text = "Confirmed. I updated your Tax Profile."
+        if document:
+            document.status = "CONFIRMED"
     else:
         profile = db.query(TaxProfile).filter(TaxProfile.id == session.profile_id).first() if session.profile_id else None
         session.state = apply_candidate(state, candidate, "reject")
         message_text = "No changes made. Let's continue with the next question."
+        if document:
+            document.status = "REJECTED"
+            db.query(UserDocumentChunk).filter(
+                UserDocumentChunk.document_id == document.id
+            ).delete(synchronize_session=False)
     db.commit()
     question = next_question(session.state)
     return response(session, message_text + (f" {question.text}" if question else " Your Tax Profile is complete."), profile=profile)
@@ -175,6 +192,17 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
 def document_candidate(request: DocumentCandidateRequest, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     session = find_session(current_user, db)
     state = deepcopy(session.state)
+    if request.document_id:
+        document = db.query(UserDocument).filter(
+            UserDocument.id == request.document_id,
+            UserDocument.user_id == current_user.id,
+            UserDocument.status == "REQUIRES_CONFIRMATION",
+        ).first()
+        if not document:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document review is not available")
+        state["pending_document_id"] = document.id
+    else:
+        state.pop("pending_document_id", None)
     state["pending_candidate"] = request.candidate_values
     session.state = state
     db.commit()

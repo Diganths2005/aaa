@@ -2,11 +2,13 @@
 
 TaxWise supports a preparation-only demonstration for AY 2026-27. It does not file a return, submit to the Income Tax Department, e-verify, or create an acknowledgement number.
 
+Return selection can identify other return families. TaxWise also supports a constrained ITR-3 business-income review summary; this does not change the ITR-1 eligibility rules or imply complete preparation of other statutory forms. Unsupported selections are not converted into ITR-1 preparation.
+
 ## Supported scope
 
 The deterministic eligibility service currently accepts resident individuals with salary or pension income, supported other-source income, supported house-property scenarios, supported deductions, tax payments, and optional refund bank details. It rejects foreign income/assets, business or professional income, speculative income, unlisted equity, capital gains, and non-resident profiles for this demo.
 
-Eligibility is computed by `backend/itr/service.py`; the assistant cannot decide it. AY 2026-27 rules are the only active assessment-year rules. The implemented scope is based on the Income Tax Department's ITR-1 filing guidance and instructions for AY 2026-27; it is a preparation demo and requires professional review before filing.
+ITR-1 eligibility is checked by `backend/itr/service.py`; broader family selection is handled by `backend/itr/selection.py`. The assistant cannot choose or override a return form. AY 2026-27 is the only active assessment year. The implementation is a preparation demo and requires professional review before filing.
 
 ## Tax Engine integration
 
@@ -22,7 +24,7 @@ The preview presents taxpayer details, income, deductions, taxes paid, tax compu
 
 ## Limitations
 
-- Only AY 2026-27 and ITR-1 preparation are supported.
-- Capital gains, business income, foreign income/assets, ITD submission, e-verification, OCR, RAG, and final ITR filing are not implemented.
+- Only AY 2026-27 is supported. This document describes the ITR-1 preparation scope.
+- Capital gains, business income, foreign schedules, ITD submission, e-verification, and final ITR filing are not included in this ITR-1 workflow. TaxWise has a limited ITR-3 review-summary workflow, but does not prepare full ITR-3 statutory schedules. ITR-2 and ITR-4 preparation remain unsupported; see [Return Selection and Future Preparation](ITR2_3.md).
 - Bank details are displayed masked; the current demo does not submit them anywhere.
 - The source references are documentation-level references; official rules should be revalidated before production use.

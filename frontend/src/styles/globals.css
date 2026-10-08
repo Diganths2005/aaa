@@ -23,7 +23,7 @@ html {
 }
 
 body {
-  @apply bg-slate text-text antialiased;
+  @apply bg-surface text-text antialiased;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
@@ -64,6 +64,40 @@ select:focus-visible {
 
 .chip {
   @apply inline-flex items-center rounded-full border border-border bg-mint px-2.5 py-1 text-xs font-medium text-primary;
+}
+
+@media print {
+  @page {
+    margin: 14mm;
+  }
+
+  body {
+    background: #fff !important;
+    color: #0f172a !important;
+    print-color-adjust: exact;
+    -webkit-print-color-adjust: exact;
+  }
+
+  .print-hidden,
+  nav,
+  aside {
+    display: none !important;
+  }
+
+  main {
+    min-height: 0 !important;
+    padding: 0 !important;
+  }
+
+  .card,
+  .shadow-soft {
+    box-shadow: none !important;
+  }
+
+  .print-break-inside-avoid {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
 }
 
 @media (max-width: 640px) {

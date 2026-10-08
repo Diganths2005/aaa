@@ -15,7 +15,7 @@ router = APIRouter(prefix="/deductions", tags=["deductions"])
 
 @router.get("/discovery")
 def deduction_discovery(
-    regime: str = Query(default="old", regex="^(old|new)$"),
+    regime: str = Query(default="old", pattern="^(old|new)$"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
@@ -28,7 +28,7 @@ def deduction_discovery(
 
 @router.get("/summary")
 def deduction_summary(
-    regime: str = Query(default="old", regex="^(old|new)$"),
+    regime: str = Query(default="old", pattern="^(old|new)$"),
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):

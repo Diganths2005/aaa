@@ -71,16 +71,31 @@ export const taxProfileAPI = {
 };
 
 export const documentsAPI = {
-  upload: (file: File, assessmentYear?: string) => {
+  upload: (
+    file: File,
+    assessmentYear?: string,
+    documentType = 'other',
+    onUploadProgress?: (percent: number) => void,
+  ) => {
     const formData = new FormData();
     formData.append('file', file);
     if (assessmentYear) formData.append('assessment_year', assessmentYear);
-    return apiClient.post(`${API_V1_URL}/documents/upload`, formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+    return apiClient.post(`${API_V1_URL}/documents/upload`, formData, {
+      params: { document_type: documentType },
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: (event) => {
+        if (event.total && onUploadProgress) {
+          onUploadProgress(Math.min(100, Math.round((event.loaded / event.total) * 100)));
+        }
+      },
+    });
   },
 
   process: (documentId: string) => apiClient.post(`${API_V1_URL}/documents/${documentId}/process`),
 
   list: () => apiClient.get(`${API_V1_URL}/documents/`),
+
+  content: (documentId: string) => apiClient.get(`${API_V1_URL}/documents/${documentId}/content`, { responseType: 'blob' }),
 
   register: (documentType: string, originalFilename: string, assessmentYear?: string) =>
     apiClient.post(`${API_V1_URL}/documents/`, {
@@ -98,7 +113,7 @@ export const onboardingAPI = {
   sendMessage: (message: string) => apiClient.post(`${API_V1_URL}/onboarding/message`, { message }),
   confirm: (action: 'confirm' | 'reject') => apiClient.post(`${API_V1_URL}/onboarding/confirm`, { action }),
   progress: () => apiClient.get(`${API_V1_URL}/onboarding/progress`),
-  documentCandidate: (candidateValues: Record<string, unknown>) => apiClient.post(`${API_V1_URL}/onboarding/document-candidate`, { candidate_values: candidateValues }),
+  documentCandidate: (candidateValues: Record<string, unknown>, documentId?: string) => apiClient.post(`${API_V1_URL}/onboarding/document-candidate`, { candidate_values: candidateValues, document_id: documentId }),
 };
 
 export const chatAPI = {

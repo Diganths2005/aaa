@@ -1,9 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/router';
 import { chatAPI, taxAPI, taxProfileAPI, whatIfAPI } from '@/lib/api';
 import { useAuthStore } from '@/store/auth';
 import ReturnToDashboard from '@/components/ReturnToDashboard';
 import { TaxProfile } from '@/types';
+import { getProfileCompletion } from '@/lib/profile-completion';
 
 type RegimeResult = {
   taxable_income: number;
@@ -138,6 +140,7 @@ const WhatIfPage: React.FC = () => {
   const [aiSources, setAiSources] = useState<string[]>([]);
   const [error, setError] = useState('');
   const [success, setSuccess] = useState('');
+  const [needsProfile, setNeedsProfile] = useState(false);
 
   useEffect(() => {
     hydrate();
@@ -156,6 +159,12 @@ const WhatIfPage: React.FC = () => {
         setLoading(true);
         const response = await taxProfileAPI.getCurrentUser();
         const profile = response.data as TaxProfile;
+        if (!getProfileCompletion(profile).minimumReady) {
+          setNeedsProfile(true);
+          setError('Complete the minimum Tax Profile information before running tax scenarios.');
+          return;
+        }
+        setNeedsProfile(false);
         const comparison = await computeComparison(profile);
         setCurrentProfile(profile);
         setCurrentComparison(comparison);
@@ -297,7 +306,7 @@ const WhatIfPage: React.FC = () => {
   }
 
   if (!currentProfile || !currentComparison || !scenarioComparison) {
-    return <div className="min-h-screen bg-[#F8FAFC] px-4 py-10 text-[#0F172A]">Simulation unavailable.</div>;
+    return <div className="min-h-screen bg-[#F8FAFC] px-4 py-10 text-[#0F172A]"><div className="mx-auto max-w-3xl rounded-3xl bg-white p-8 shadow-soft"><h1 className="text-2xl font-bold">What-If Simulator</h1><p className="mt-3 text-sm text-[#64748B]">{error || 'A Tax Profile is required before running a simulation.'}</p>{needsProfile && <Link href="/tax-profile" className="mt-5 inline-flex rounded-xl bg-[#047857] px-4 py-2.5 text-sm font-semibold text-white">Complete Profile</Link>}<div className="mt-5"><ReturnToDashboard /></div></div></div>;
   }
 
   return (

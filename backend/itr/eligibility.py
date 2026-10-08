@@ -27,6 +27,7 @@ REASON_TEXT = {
 def _base_form_result() -> dict[str, Any]:
     return {
         "eligible": False,
+        "preparationSupported": False,
         "recommended": False,
         "status": "not_eligible",
         "reasonCodes": [],
@@ -53,6 +54,7 @@ def _status_for(result: dict[str, Any], default: str) -> str:
 
 def _evaluate_itr1(profile: TaxProfileCreate) -> dict[str, Any]:
     result = _base_form_result()
+    result["preparationSupported"] = True
     has_business = bool(profile.business_income or profile.has_business_income)
     has_capital_gains = bool(profile.capital_gains)
     has_foreign = bool(profile.foreign_income_assets or profile.has_foreign_assets or profile.has_foreign_income)
@@ -103,8 +105,10 @@ def _evaluate_itr2(profile: TaxProfileCreate) -> dict[str, Any]:
         _add_reason(result, "TAXPAYER_TYPE_NOT_SUPPORTED", "Speculative income is outside the supported ITR-2 path.")
     if profile.has_unlisted_equity:
         _add_reason(result, "UNLISTED_SHARES_PRESENT", "Unlisted equity is outside the supported ITR-2 scope.")
+    if has_foreign:
+        result["unsupportedConditions"].append("Foreign income and asset schedules are not prepared by this workflow.")
 
-    should_be_eligible = (has_capital_gains or has_foreign or has_supported_non_salary) and not has_business and not profile.has_speculative_income and not profile.has_unlisted_equity
+    should_be_eligible = (has_capital_gains or has_supported_non_salary) and not has_business and not has_foreign and not profile.has_speculative_income and not profile.has_unlisted_equity
     if should_be_eligible:
         result["eligible"] = True
         result["status"] = "eligible"
@@ -120,16 +124,55 @@ def _evaluate_itr2(profile: TaxProfileCreate) -> dict[str, Any]:
 def _evaluate_itr3(profile: TaxProfileCreate) -> dict[str, Any]:
     result = _base_form_result()
     has_business = bool(profile.business_income or profile.has_business_income)
-    if has_business:
-        result["eligible"] = True
-        result["status"] = "eligible"
-        _add_reason(result, "BUSINESS_INCOME_PRESENT", "Business or professional income is present and can match ITR-3.")
+    if profile.assessment_year != "2026-27":
+        _add_reason(result, "TAXPAYER_TYPE_NOT_SUPPORTED", "Only AY 2026-27 is currently supported.")
+        result["unsupportedConditions"].append("ITR-3 preparation is available only for AY 2026-27.")
+    if profile.residential_status != "resident":
+        _add_reason(result, "TAXPAYER_TYPE_NOT_SUPPORTED", "ITR-3 preparation currently supports resident individual profiles only.")
+        result["unsupportedConditions"].append("Non-resident ITR-3 schedules are not prepared by this workflow.")
     if profile.has_speculative_income:
         _add_reason(result, "TAXPAYER_TYPE_NOT_SUPPORTED", "Speculative income is outside the supported ITR-3 path.")
+        result["unsupportedConditions"].append("Speculative income schedules are not prepared by this workflow.")
+    if profile.has_carry_forward_loss:
+        result["unsupportedConditions"].append("Historical carry-forward loss schedules are not prepared by this workflow.")
+    if profile.has_unlisted_equity:
+        result["unsupportedConditions"].append("Unlisted-equity schedules are not prepared by this workflow.")
+    if profile.is_director:
+        result["unsupportedConditions"].append("Company-director disclosure schedules are not prepared by this workflow.")
+    if profile.foreign_income_assets or profile.has_foreign_assets or profile.has_foreign_income:
+        result["unsupportedConditions"].append("Foreign income and asset schedules are not prepared by this workflow.")
     if not has_business:
         result["missingInformation"].append("business_or_professional_income")
         _add_reason(result, "MISSING_REQUIRED_INFORMATION", "Business or professional income data is required before ITR-3 can be determined.")
-        result["status"] = _status_for(result, "not_eligible")
+    if has_business and not profile.business_income:
+        result["missingInformation"].append("business_income_details")
+        _add_reason(result, "MISSING_REQUIRED_INFORMATION", "Add business or professional income details before preparing ITR-3.")
+    if any(item.net_profit_or_loss < 0 for item in profile.business_income):
+        result["unsupportedConditions"].append("Business losses and their statutory schedules are not supported.")
+    if any(item.presumptive_section for item in profile.business_income):
+        result["unsupportedConditions"].append("Presumptive business schedules are outside this ITR-3 preparation path.")
+
+    supported = (
+        has_business
+        and bool(profile.business_income)
+        and profile.assessment_year == "2026-27"
+        and profile.residential_status == "resident"
+        and not profile.has_speculative_income
+        and not profile.has_carry_forward_loss
+        and not profile.has_unlisted_equity
+        and not profile.is_director
+        and not profile.foreign_income_assets
+        and not profile.has_foreign_assets
+        and not profile.has_foreign_income
+        and all(item.net_profit_or_loss >= 0 and not item.presumptive_section for item in profile.business_income)
+    )
+    if supported and not result["missingInformation"] and not result["unsupportedConditions"]:
+        result["eligible"] = True
+        result["preparationSupported"] = True
+        _add_reason(result, "BUSINESS_INCOME_PRESENT", "Supported non-presumptive business or professional income is prepared as an ITR-3 review summary.")
+    elif has_business:
+        _add_reason(result, "BUSINESS_INCOME_PRESENT", "Business or professional income points to the ITR-3 return family.")
+    result["status"] = "eligible" if result["eligible"] else _status_for(result, "not_eligible")
     return result
 
 
@@ -178,6 +221,7 @@ def build_itr_decision(profile: TaxProfileCreate) -> dict[str, Any]:
         "assessment_year": profile.assessment_year,
         "status": status,
         "recommended_itr": recommended,
+        "preparation_supported": bool(recommended and forms[recommended]["preparationSupported"]),
         "forms": forms,
     }
     return result
@@ -194,12 +238,14 @@ def evaluate_itr_readiness(decision: dict[str, Any]) -> dict[str, Any]:
             missing_fields.extend(form_result.get("missingInformation", []))
         missing_fields = list(dict.fromkeys(missing_fields))
 
-    ready = bool(recommended and not missing_fields and decision.get("status") == "eligible")
+    preparation_supported = bool(recommended and (decision.get("forms") or {}).get(recommended, {}).get("preparationSupported"))
+    ready = bool(recommended and preparation_supported and not missing_fields and decision.get("status") == "eligible")
     completion = 100 if ready else (60 if recommended else 0)
     return {
         "itr": recommended,
         "eligible": decision.get("status") == "eligible",
         "recommended": bool(recommended),
+        "preparation_supported": preparation_supported,
         "ready": ready,
         "missing_fields": missing_fields,
         "completion_percentage": completion,

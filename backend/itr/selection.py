@@ -12,6 +12,7 @@ class ITRSelection:
     reasons: List[str]
     missing_information: List[str]
     unsupported_conditions: List[str]
+    preparation_supported: bool = False
 
 
 def select_itr(profile: TaxProfileCreate) -> ITRSelection:
@@ -48,8 +49,27 @@ def select_itr(profile: TaxProfileCreate) -> ITRSelection:
             missing.append("Add business or professional income details.")
         presumptive = bool(profile.business_income) and all(item.presumptive_section for item in profile.business_income)
         if presumptive and not has_capital_gains and not has_foreign and not profile.has_speculative_income and not profile.has_unlisted_equity:
-            return ITRSelection("ITR-4", year_supported and not missing and not unsupported, profile.assessment_year, reasons + ["Presumptive business or professional income is present."], missing, unsupported)
-        return ITRSelection("ITR-3", year_supported and not missing and not unsupported, profile.assessment_year, reasons + ["Business or professional income requires ITR-3."], missing, unsupported)
+            return ITRSelection("ITR-4", year_supported and not missing and not unsupported, profile.assessment_year, reasons + ["Presumptive business or professional income is present."], missing, unsupported, False)
+        if profile.residential_status != "resident":
+            unsupported.append("Non-resident ITR-3 schedules are not prepared by this workflow.")
+        if profile.is_director:
+            unsupported.append("Company-director disclosure schedules are not prepared by this workflow.")
+        if has_foreign:
+            unsupported.append("Foreign income and asset schedules are not prepared by this workflow.")
+        if any(item.net_profit_or_loss < 0 for item in profile.business_income):
+            unsupported.append("Business losses and their statutory schedules are not supported.")
+        if any(item.presumptive_section for item in profile.business_income):
+            unsupported.append("Presumptive business schedules are outside this ITR-3 preparation path.")
+        eligible = year_supported and not missing and not unsupported
+        return ITRSelection(
+            "ITR-3",
+            eligible,
+            profile.assessment_year,
+            reasons + ["Business or professional income requires ITR-3."],
+            missing,
+            unsupported,
+            eligible,
+        )
 
     if has_capital_gains or has_foreign:
         if has_foreign:
@@ -57,10 +77,10 @@ def select_itr(profile: TaxProfileCreate) -> ITRSelection:
             unsupported.append("Foreign schedules are not yet supported for preparation.")
         if has_capital_gains:
             reasons.append("Capital-gain transactions require ITR-2 within the supported scope.")
-        return ITRSelection("ITR-2", year_supported and not missing and not unsupported, profile.assessment_year, reasons, missing, unsupported)
+        return ITRSelection("ITR-2", year_supported and not missing and not unsupported, profile.assessment_year, reasons, missing, unsupported, False)
 
     if profile.residential_status != "resident":
         reasons.append("Non-resident profiles are outside the supported ITR-1 scope.")
     if not profile.salary_income and not profile.pension_income:
         reasons.append("Salary or pension income is required for ITR-1.")
-    return ITRSelection("ITR-1", year_supported and not reasons and not missing and not unsupported, profile.assessment_year, reasons or ["Salary or pension income fits the supported ITR-1 scope."], missing, unsupported)
+    return ITRSelection("ITR-1", year_supported and not reasons and not missing and not unsupported, profile.assessment_year, reasons or ["Salary or pension income fits the supported ITR-1 scope."], missing, unsupported, True)

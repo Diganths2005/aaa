@@ -17,7 +17,13 @@ export interface SalaryIncome { employer_name: string; gross_salary: Money; stan
 export interface PensionIncome { payer_name: string; amount: Money; tds: Money; }
 export interface HouseProperty { property_type: 'self_occupied' | 'let_out' | 'deemed_let_out'; city: string; annual_rent: Money; municipal_tax: Money; home_loan_interest: Money; ownership_share: number; loan_purpose?: 'purchase_or_construction' | 'repair'; loan_sanction_date?: string; construction_completed_within_five_years?: boolean; }
 export interface OtherIncome { income_type: 'interest' | 'dividend' | 'family_pension' | 'other'; description: string; amount: Money; tds: Money; }
-export interface CapitalGain { asset_type: 'equity' | 'mutual_fund' | 'property' | 'other'; holding_period: 'short_term' | 'long_term'; sale_value: Money; cost_of_acquisition: Money; transfer_expenses: Money; gain_or_loss: Money; }
+export interface CapitalGain {
+  asset_type: 'listed_equity_share' | 'equity_oriented_mutual_fund' | 'other_security' | 'immovable_property' | 'gold_or_other';
+  acquisition_date?: string; sale_date?: string; sale_consideration: Money; acquisition_cost: Money;
+  improvement_cost: Money; transfer_expenses: Money; quantity?: Money; is_listed?: boolean;
+  is_equity_oriented?: boolean; stt_paid_on_acquisition?: boolean; stt_paid_on_transfer?: boolean;
+  grandfathered_fmv_2018?: Money;
+}
 export interface BusinessIncome { business_name: string; nature_of_business: string; gross_receipts: Money; net_profit_or_loss: Money; presumptive_section?: '44AD' | '44ADA' | '44AE'; }
 export interface ForeignIncomeAsset { country: string; item_type: 'income' | 'bank_account' | 'security' | 'immovable_property'; description: string; value: Money; }
 export interface Investment { investment_type: string; amount: Money; }
@@ -39,10 +45,10 @@ export interface DocumentReference { document_type: 'form_16' | 'ais' | 'form_26
 export interface TaxProfile {
   id?: string; user_id?: string; date_of_birth?: string; pan_number?: string; gender?: string; marital_status?: string;
   address?: string; city?: string; state?: string; pincode?: string; citizenship?: string; nationality?: string;
-  residential_status: 'resident' | 'non_resident' | 'nri'; employment_type: 'salaried' | 'self_employed' | 'both' | 'none';
+  residential_status: 'resident' | 'non_resident' | 'nri' | ''; employment_type: 'salaried' | 'self_employed' | 'both' | 'none' | '';
   employer_name?: string; employer_address?: string; financial_year: string; assessment_year: string;
-  is_senior_citizen: boolean; is_director: boolean; has_unlisted_equity: boolean; has_foreign_assets: boolean;
-  has_foreign_income: boolean; has_business_income: boolean; has_speculative_income: boolean; has_carry_forward_loss: boolean;
+  is_senior_citizen?: boolean; is_director?: boolean; has_unlisted_equity?: boolean; has_foreign_assets?: boolean;
+  has_foreign_income?: boolean; has_business_income?: boolean; has_speculative_income?: boolean; has_carry_forward_loss?: boolean;
   salary_income: SalaryIncome[]; pension_income: PensionIncome[]; house_properties: HouseProperty[];
   other_income: OtherIncome[]; capital_gains: CapitalGain[]; business_income: BusinessIncome[];
   foreign_income_assets: ForeignIncomeAsset[]; investments: Investment[]; deductions: Deduction[];

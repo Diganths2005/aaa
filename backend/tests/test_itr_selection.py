@@ -1,4 +1,4 @@
-from decimal import Decimal
+import pytest
 
 from itr.service import prepare_return, select_return
 from schemas.tax_profile import TaxProfileCreate
@@ -40,10 +40,10 @@ def test_selector_recommends_itr2_for_multiple_capital_gain_transactions():
     selection = select_return(profile)
     assert selection.eligible is True
     assert selection.recommended_itr == "ITR-2"
+    assert selection.preparation_supported is False
 
-    preparation = prepare_return(profile, "Test Taxpayer")
-    assert preparation["itr_form"] == "ITR-2"
-    assert len(preparation["income"]["capital_gains"].transactions) == 2
+    with pytest.raises(ValueError, match="outside the supported preparation scope"):
+        prepare_return(profile, "Test Taxpayer")
 
 
 def test_selector_recommends_itr4_only_for_presumptive_income():
@@ -62,9 +62,9 @@ def test_selector_recommends_itr4_only_for_presumptive_income():
     selection = select_return(profile)
     assert selection.eligible is True
     assert selection.recommended_itr == "ITR-4"
-    preparation = prepare_return(profile, "Test Taxpayer")
-    assert preparation["calculation"]["taxable_income"] == Decimal("300000")
-    assert preparation["support_status"]["business_expenses_and_detailed_schedules"] == "Not yet supported"
+    assert selection.preparation_supported is False
+    with pytest.raises(ValueError, match="outside the supported preparation scope"):
+        prepare_return(profile, "Test Taxpayer")
 
 
 def test_selector_recommends_itr3_for_non_presumptive_business_income():
@@ -82,3 +82,30 @@ def test_selector_recommends_itr3_for_non_presumptive_business_income():
     selection = select_return(profile)
     assert selection.eligible is True
     assert selection.recommended_itr == "ITR-3"
+    assert selection.preparation_supported is True
+
+    preparation = prepare_return(profile, "Test Taxpayer")
+    assert preparation["itr_form"] == "ITR-3"
+    assert preparation["income"]["business"] == 200000
+    assert preparation["schedules"]["business_income"][0]["gross_receipts"] == "1000000"
+    assert preparation["support_status"]["statutory_itr3_schedules"].startswith("Not supported")
+
+
+def test_itr3_rejects_foreign_schedules():
+    profile = base_profile(
+        salary_income=[],
+        employment_type="self_employed",
+        has_business_income=True,
+        business_income=[{
+            "business_name": "Retail",
+            "nature_of_business": "Retail trade",
+            "gross_receipts": 1000000,
+            "net_profit_or_loss": 200000,
+        }],
+        has_foreign_assets=True,
+    )
+    selection = select_return(profile)
+    assert selection.recommended_itr == "ITR-3"
+    assert selection.preparation_supported is False
+    with pytest.raises(ValueError, match="outside the supported preparation scope"):
+        prepare_return(profile, "Test Taxpayer")

@@ -50,6 +50,15 @@ def _masked_account(account: Dict[str, Any]) -> Dict[str, Any]:
     return {**account, "account_number": f"******{number[-4:]}" if number else ""}
 
 
+def _calculation_details(calculation: TaxCalculationResult) -> Dict[str, Any]:
+    return {
+        "ordinary_taxable_income": calculation.ordinary_taxable_income,
+        "capital_gains_tax": calculation.capital_gains_tax,
+        "tax_after_rebate": calculation.tax_after_rebate,
+        "slab_calculation": [step.model_dump(mode="json") for step in calculation.slab_calculation],
+    }
+
+
 def prepare_itr1(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "new") -> Dict[str, Any]:
     eligibility = check_itr1_eligibility(profile)
     if not eligibility.eligible:
@@ -83,6 +92,7 @@ def prepare_itr1(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "n
             "total": calculation.total_tax_paid,
         },
         "calculation": {
+            **_calculation_details(calculation),
             "taxable_income": calculation.taxable_income,
             "tax_before_rebate": calculation.tax_before_rebate,
             "tax": calculation.total_tax_liability,
@@ -100,21 +110,37 @@ def prepare_itr1(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "n
 
 def prepare_return(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "new", requested_itr: Optional[str] = None) -> Dict[str, Any]:
     selection = select_return(profile)
+    if selection.recommended_itr and not selection.preparation_supported:
+        reasons = " ".join(selection.reasons + selection.unsupported_conditions)
+        raise ValueError(
+            f"{selection.recommended_itr} is indicated by your profile, but this profile is outside the supported preparation scope. "
+            f"No preparation summary was generated. {reasons}"
+        )
     if not selection.eligible:
         details = selection.missing_information + selection.unsupported_conditions + selection.reasons
         raise ValueError("TaxWise cannot prepare this return: " + " ".join(details))
     if requested_itr and requested_itr != selection.recommended_itr:
         raise ValueError(f"{requested_itr} is not the deterministic recommendation for this profile; TaxWise selected {selection.recommended_itr}.")
 
-    calculation: TaxCalculationResult = calculate_tax(profile, regime, allow_expanded_income=True)
+    is_itr3 = selection.recommended_itr == "ITR-3"
+    calculation: TaxCalculationResult = calculate_tax(profile, regime, allow_expanded_income=is_itr3)
+    has_foreign_information = bool(
+        profile.foreign_income_assets or profile.has_foreign_assets or profile.has_foreign_income
+    )
+    has_capital_loss_carry_forward = calculation.capital_gains.capital_loss_carry_forward > 0
+    has_property_loss_carry_forward = calculation.house_property_loss_carried_forward > 0
     return {
         "itr_form": selection.recommended_itr,
         "selection": selection.__dict__,
         "support_status": {
             "income_and_tax_calculation": "Supported",
-            "capital_gains_transactions": "Supported" if profile.capital_gains else "Not applicable",
-            "foreign_schedules": "Partially supported" if profile.foreign_income_assets else "Not applicable",
-            "business_expenses_and_detailed_schedules": "Not yet supported" if profile.business_income else "Not applicable",
+            "capital_gains_computation": "Supported for implemented transaction rules" if profile.capital_gains else "Not applicable",
+            "business_income_summary": "User-entered non-negative net profit included" if is_itr3 else "Not applicable",
+            "business_books_and_detailed_schedules": "Not supported; books, expenses, and depreciation are not modeled" if is_itr3 else "Not applicable",
+            "statutory_itr3_schedules": "Not supported; this is a review summary, not a completed statutory return" if is_itr3 else "Not applicable",
+            "foreign_schedules": "Not supported" if has_foreign_information else "Not applicable",
+            "capital_loss_carry_forward": "Calculated for review; historical loss schedules are not supported" if has_capital_loss_carry_forward else "Not applicable",
+            "property_loss_carry_forward": "Calculated for review; historical loss schedules are not supported" if has_property_loss_carry_forward else "Not applicable",
             "return_filing_or_submission": "Not supported",
         },
         "assessment_year": profile.assessment_year,
@@ -130,8 +156,19 @@ def prepare_return(profile: TaxProfileCreate, taxpayer_name: str, regime: str = 
             "pension": calculation.income_from_pension,
             "house_property": calculation.house_property_income,
             "other_sources": calculation.other_sources_income,
+            "business": calculation.business_income,
             "capital_gains": calculation.capital_gains,
             "gross_total_income": calculation.gross_total_income,
+        },
+        "schedules": {
+            "salary_and_pension": [
+                *[item.model_dump(mode="json") for item in profile.salary_income],
+                *[item.model_dump(mode="json") for item in profile.pension_income],
+            ],
+            "house_property": [item.model_dump(mode="json") for item in profile.house_properties],
+            "other_sources": [item.model_dump(mode="json") for item in profile.other_income],
+            "capital_gains": [item.model_dump(mode="json") for item in calculation.capital_gains.transactions],
+            "business_income": [item.model_dump(mode="json") for item in profile.business_income],
         },
         "deductions": {"total": calculation.total_deductions, "items": profile.deductions},
         "taxes_paid": {
@@ -141,6 +178,7 @@ def prepare_return(profile: TaxProfileCreate, taxpayer_name: str, regime: str = 
             "total": calculation.total_tax_paid,
         },
         "calculation": {
+            **_calculation_details(calculation),
             "taxable_income": calculation.taxable_income,
             "tax_before_rebate": calculation.tax_before_rebate,
             "tax": calculation.total_tax_liability,

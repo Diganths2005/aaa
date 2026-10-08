@@ -142,7 +142,7 @@ def _is_section_relevant(profile: TaxProfileCreate, section: str) -> bool:
     if section == "80TTA":
         return bool(profile.bank_accounts or any(item.income_type == "interest" for item in profile.other_income))
     if section == "80TTB":
-        return bool(profile.is_senior_citizen or profile.date_of_birth)
+        return taxpayer_age_category(profile) in {"senior", "super_senior"}
     if section == "80U":
         return bool(profile.residential_status == "resident")
     return False
@@ -271,8 +271,18 @@ def discover_deductions(profile: TaxProfileCreate, regime: str = "old") -> list[
 
     records: list[dict[str, Any]] = []
     existing = {_normalize_section(str(item.section)): item for item in (profile.deductions or [])}
+    allowed = ALLOWED_NEW if normalized_regime == "new" else ALLOWED_OLD
     for section in DEDUCTION_ORDER:
         if not _is_section_relevant(profile, section):
+            continue
+        if section not in allowed:
+            records.append(
+                _not_applicable_record(
+                    section,
+                    normalized_regime,
+                    f"{section} is not available under the selected {normalized_regime} regime.",
+                )
+            )
             continue
         if section in existing:
             records.append(_evaluate_existing_item(profile, existing[section], normalized_regime))
@@ -285,7 +295,6 @@ def discover_deductions(profile: TaxProfileCreate, regime: str = "old") -> list[
 
 
 def summarize_discovery(deductions: list[dict[str, Any]]) -> dict[str, Any]:
-    total_claimed = sum((Decimal(str(item["claimedAmount"])) for item in deductions), ZERO)
     total_eligible = sum((Decimal(str(item["eligibleAmount"])) for item in deductions), ZERO)
     total_applied = sum((Decimal(str(item["appliedAmount"])) for item in deductions), ZERO)
     potential = [item for item in deductions if item["status"] in {"UNKNOWN", "NEEDS_INFORMATION", "POTENTIALLY_ELIGIBLE", "ELIGIBLE"}]

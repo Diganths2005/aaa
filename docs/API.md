@@ -1,322 +1,87 @@
 # API Reference
 
-## Base URL
-```
-http://localhost:8000/api/v1
-```
+The interactive OpenAPI reference is available at `/docs` when the backend is running. The API uses `/api/v1` for authenticated application routes. Tax calculation routes use `/api/tax`; return selection and preparation routes use `/api/itr`.
+
+Authenticated `/api/v1` requests use `Authorization: Bearer <access_token>`, except signup and login. The standalone calculation endpoints accept validated profile data in their request body.
 
 ## Authentication
-All endpoints require JWT token in Authorization header (except signup/login):
-```
-Authorization: Bearer <token>
-```
 
----
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/auth/signup` | Create an account |
+| `POST` | `/api/v1/auth/login` | Authenticate and obtain a bearer token |
+| `GET` | `/api/v1/auth/me` | Read the current user |
+| `POST` | `/api/v1/auth/logout` | Log out |
 
-## Authentication Endpoints
+## Tax Profile and Onboarding
 
-### Signup
-**POST** `/auth/signup`
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/tax-profiles/` | Create the current user's profile |
+| `GET` | `/api/v1/tax-profiles/current` | Read the current user's profile |
+| `GET` | `/api/v1/tax-profiles/{profile_id}` | Read an owned profile |
+| `PUT` | `/api/v1/tax-profiles/{profile_id}` | Update an owned profile |
+| `DELETE` | `/api/v1/tax-profiles/{profile_id}` | Delete an owned profile |
+| `POST` | `/api/v1/onboarding/session` | Start or resume onboarding |
+| `GET` | `/api/v1/onboarding/session` | Read onboarding state |
+| `GET` | `/api/v1/onboarding/progress` | Read completion progress |
+| `POST` | `/api/v1/onboarding/message` | Submit a structured onboarding answer |
+| `POST` | `/api/v1/onboarding/confirm` | Confirm or reject a pending profile candidate |
 
-Create a new user account.
+The legacy `POST /api/v1/tax-profiles/{profile_id}/documents` endpoint is retired and returns `410 Gone`.
 
-**Request:**
-```json
-{
-  "email": "user@example.com",
-  "first_name": "John",
-  "last_name": "Doe",
-  "password": "securepassword123"
-}
-```
+## Tax Calculation
 
-**Response:** `200 OK`
-```json
-{
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "token_type": "bearer",
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "user@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "createdAt": "2024-01-15T10:30:00"
-  }
-}
-```
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/tax/calculate` | Calculate one regime from `{ "profile": ..., "regime": "old" | "new" }` |
+| `POST` | `/api/tax/compare-regimes` | Calculate both regimes and return the deterministic recommendation |
+| `GET` | `/api/v1/deductions/discovery?regime=old` | List deduction discovery results for the current profile |
+| `GET` | `/api/v1/deductions/summary?regime=old` | Read the current deduction summary |
+| `POST` | `/api/v1/what-if/simulate` | Calculate a non-persisted profile scenario |
+| `POST` | `/api/v1/what-if/apply` | Apply a confirmed what-if change |
 
-### Login
-**POST** `/auth/login`
+Calculation responses include Decimal-derived totals, regime inputs, tax stages, slab contributions, rebate, surcharge, cess, taxes paid, refund, and balance payable. Unsupported inputs return a structured `422` tax-engine error. The engine supports AY 2026-27 only.
 
-Authenticate user and get JWT token.
+## Chat
 
-**Request:**
-```json
-{
-  "email": "user@example.com",
-  "password": "securepassword123"
-}
-```
+`POST /api/v1/chat` accepts `{ "message": "..." }` and returns `{ "answer": "...", "sources": [...], "mode": "..." }`.
 
-**Response:** `200 OK`
-```json
-{
-  "access_token": "eyJ0eXAiOiJKV1QiLCJhbGc...",
-  "token_type": "bearer",
-  "user": {
-    "id": "550e8400-e29b-41d4-a716-446655440000",
-    "email": "user@example.com",
-    "firstName": "John",
-    "lastName": "Doe",
-    "createdAt": "2024-01-15T10:30:00"
-  }
-}
-```
+The route retrieves matching assessment-year notes and, for questions explicitly about uploaded tax documents, passages from the current user's processed documents. Sources identify the note path or document filename and page. The deterministic engine remains the source of calculation facts. A configured GitHub Models provider may explain answers grounded in shared notes; private uploaded passages are never sent to it. Unsupported tax questions with no relevant source receive an explicit out-of-scope answer.
 
-### Get Current User
-**GET** `/auth/me`
+## Documents
 
-Get authenticated user details.
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/documents/` | Register document metadata only (`202 Accepted`) |
+| `POST` | `/api/v1/documents/upload` | Upload PDF/Excel, max 10 MB (`202 Accepted`) |
+| `POST` | `/api/v1/documents/{document_id}/process` | Extract candidate fields for review |
+| `POST` | `/api/v1/onboarding/document-candidate` | Stage candidate values for an owned pending document |
+| `POST` | `/api/v1/onboarding/confirm` | Confirm or reject staged values |
+| `GET` | `/api/v1/documents/` | List the current user's documents |
+| `DELETE` | `/api/v1/documents/{document_id}` | Delete an owned document and its temporary file |
 
-**Response:** `200 OK`
-```json
-{
-  "id": "550e8400-e29b-41d4-a716-446655440000",
-  "email": "user@example.com",
-  "first_name": "John",
-  "last_name": "Doe",
-  "is_active": true,
-  "created_at": "2024-01-15T10:30:00"
-}
-```
+Processing returns extracted candidates and onboarding-compatible values and indexes passages for private chat retrieval. Extraction does not update the profile. Confirmation validates and merges values; rejection leaves the profile unchanged and removes that document from search. Only the owner can retrieve a processed document; deletion removes its indexed passages and temporary file. Scanned PDF OCR requires the Tesseract executable to be installed on the backend host.
 
-### Logout
-**POST** `/auth/logout`
+## Return Selection and Preparation
 
-Logout current user.
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/itr/eligibility` | Check the ITR-1 preparation conditions |
+| `GET` | `/api/itr/selection` | Return the selected family, reasons, and `preparation_supported` flag |
+| `GET` | `/api/itr/current` | Build the current supported preparation response |
+| `POST` | `/api/itr/prepare` | Prepare the selected supported form and regime |
+| `POST` | `/api/itr/recalculate` | Recalculate preparation from the saved profile |
+| `POST` | `/api/itr/ask` | Explain a preparation result using its calculation facts |
+| `POST` | `/api/itr/pdf` | Download the preparation review PDF |
 
-**Response:** `200 OK`
-```json
-{
-  "message": "Logged out successfully"
-}
-```
+Selection may identify ITR-2, ITR-3, or ITR-4. ITR-1 preparation and a constrained ITR-3 business-income review summary are supported. The ITR-3 path is limited to resident, non-presumptive profiles with non-negative user-entered net profit and no unsupported schedules; it does not generate complete books, depreciation, or statutory schedules. ITR-2, ITR-4, and unsupported ITR-3 profiles return `422` with an explanation. Generated PDFs are review summaries, not official filing forms or submissions.
 
----
+## Errors and Data Handling
 
-## Tax Profile Endpoints
+- `401` indicates missing or invalid authentication on protected routes.
+- `404` is returned for missing resources and documents not owned by the current user.
+- `413` indicates a document exceeds 10 MB; `415` indicates an unsupported file type.
+- `422` indicates request validation, extraction, unsupported return preparation, or tax-engine failure.
 
-### Create Tax Profile
-**POST** `/tax-profiles`
-
-Create a new tax profile for the current user.
-
-**Request:**
-```json
-{
-  "date_of_birth": "1990-05-15",
-  "pan_number": "ABCDE1234F",
-  "aadhaar_number": "1234567890123456",
-  "gender": "male",
-  "marital_status": "married",
-  "address": "123 Main St",
-  "city": "Mumbai",
-  "state": "Maharashtra",
-  "pincode": "400001",
-  "residential_status": "resident",
-  "employment_type": "salaried",
-  "salary_income": 1000000,
-  "employer_name": "Tech Company Ltd",
-  "employer_address": "Tech Park, Mumbai",
-  "other_income": 50000,
-  "other_income_type": "interest",
-  "house_property_income": 100000,
-  "property_description": "2BHK Flat in Mumbai",
-  "investments": [
-    {
-      "type": "ppf",
-      "amount": 150000
-    }
-  ],
-  "deductions": [
-    {
-      "type": "80c",
-      "amount": 150000
-    }
-  ],
-  "tds_paid": 50000,
-  "advance_tax_paid": 25000,
-  "self_assessment_tax": 0,
-  "bank_name": "HDFC Bank",
-  "account_number": "12345678901234",
-  "ifsc_code": "HDFC0000001",
-  "account_type": "savings"
-}
-```
-
-**Response:** `200 OK`
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001",
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  "date_of_birth": "1990-05-15",
-  "pan_number": "ABCDE1234F",
-  // ... all fields from request
-  "created_at": "2024-01-15T10:30:00",
-  "updated_at": "2024-01-15T10:30:00"
-}
-```
-
-### Get Current User's Tax Profile
-**GET** `/tax-profiles/current`
-
-Get the current user's tax profile.
-
-**Response:** `200 OK`
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001",
-  "user_id": "550e8400-e29b-41d4-a716-446655440000",
-  // ... profile fields
-}
-```
-
-### Get Tax Profile by ID
-**GET** `/tax-profiles/{profile_id}`
-
-Get a specific tax profile (must be owner).
-
-**Parameters:**
-- `profile_id` (path): UUID of the tax profile
-
-**Response:** `200 OK`
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001",
-  // ... profile fields
-}
-```
-
-### Update Tax Profile
-**PUT** `/tax-profiles/{profile_id}`
-
-Update an existing tax profile.
-
-**Parameters:**
-- `profile_id` (path): UUID of the tax profile
-
-**Request:**
-```json
-{
-  "salary_income": 1200000,
-  "tds_paid": 60000
-  // ... other fields to update
-}
-```
-
-**Response:** `200 OK`
-```json
-{
-  "id": "660e8400-e29b-41d4-a716-446655440001",
-  // ... updated profile fields
-}
-```
-
-### Legacy Profile Document Route
-**POST** `/tax-profiles/{profile_id}/documents`
-
-This legacy route is retired and returns `410 Gone`. Use the optional `/documents` endpoints below. Document intake is deliberately separate from the tax profile.
-
-**Parameters:**
-- `profile_id` (path): UUID of the tax profile
-- `file` (form-data): File to upload (PDF, JPG, PNG, max 10MB)
-
-**Response:** `410 Gone`
-```json
-{
-  "detail": "Document intake is available through the optional /documents endpoint"
-}
-```
-
-## Optional Document Intelligence
-
-Document upload is optional. The existing profile, tax calculation, and ITR flows do not depend on these endpoints.
-
-### Register Optional Document
-**POST** `/documents`
-
-Register document metadata for the authenticated user. The current architecture returns `202 Accepted` with `pending` status; binary storage and processing adapters are planned separately.
-
-**Request:**
-```json
-{
-  "document_type": "form_16",
-  "original_filename": "form-16.pdf",
-  "assessment_year": "2026-27"
-}
-```
-
-### List My Documents
-**GET** `/documents`
-
-Returns only documents owned by the authenticated user. Future responses will include processing status, page count, and source metadata.
-
-### Delete My Document
-**DELETE** `/documents/{document_id}`
-
-Deletes only a document owned by the authenticated user. Storage, chunks, and embeddings must be removed by the future storage adapter as one deletion operation.
-
-### Delete Tax Profile
-**DELETE** `/tax-profiles/{profile_id}`
-
-Delete a tax profile.
-
-**Parameters:**
-- `profile_id` (path): UUID of the tax profile
-
-**Response:** `200 OK`
-```json
-{
-  "message": "Tax profile deleted successfully"
-}
-```
-
----
-
-## Error Responses
-
-### 400 Bad Request
-```json
-{
-  "detail": "Invalid request data"
-}
-```
-
-### 401 Unauthorized
-```json
-{
-  "detail": "Could not validate credentials"
-}
-```
-
-### 404 Not Found
-```json
-{
-  "detail": "Tax profile not found"
-}
-```
-
-### 500 Internal Server Error
-```json
-{
-  "detail": "Internal server error"
-}
-```
-
----
-
-## Rate Limiting
-Currently no rate limiting. To be implemented in production.
-
-## Version
-API Version: v1 (2024-01-15)
+Profile responses mask PAN and bank-account numbers. Document bytes currently use local temporary storage; production deployment requires a protected persistent storage design and retention policy.
