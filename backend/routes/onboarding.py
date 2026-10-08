@@ -174,11 +174,12 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
             UserDocument.user_id == current_user.id,
             UserDocument.id != document.id,
         ).all()
-        warnings = reconcile_candidate(
-            TaxProfileCreate.model_validate(existing_profile) if existing_profile else None,
-            candidate,
-            existing_documents,
-        )
+        if existing_profile or existing_documents:
+            warnings = reconcile_candidate(
+                TaxProfileCreate.model_validate(existing_profile) if existing_profile else None,
+                candidate,
+                existing_documents,
+            )
     if request.action == "confirm":
         profile = persist_candidate(session, candidate, current_user, db)
         session.state = apply_candidate(state, candidate, "confirm")
