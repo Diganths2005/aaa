@@ -1,0 +1,57 @@
+name: TaxWise validation
+
+on:
+  push:
+    branches: ["main", "reliability-hardening"]
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: taxwise_user
+          POSTGRES_PASSWORD: taxwise_password
+          POSTGRES_DB: taxwise_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U taxwise_user -d taxwise_db"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=5
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install backend dependencies
+        run: pip install -r requirements.txt
+      - name: Run backend tests
+        env:
+          DATABASE_URL: postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db
+          SECRET_KEY: ci-test-secret
+          DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-documents
+        run: python -m pytest -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run type-check
+      - run: npm run build
