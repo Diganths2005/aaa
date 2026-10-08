@@ -19,6 +19,8 @@ def extract_pdf_pages(content: bytes) -> List[str]:
     pages = [page.extract_text() or "" for page in reader.pages]
     if any(page.strip() for page in pages):
         return pages
+    if not pages:
+        raise ValueError("DOCUMENT_REQUIRES_OCR") from None
 
     if pytesseract is None:
         raise ValueError("DOCUMENT_REQUIRES_OCR") from None
