@@ -23,7 +23,13 @@ def profile_completeness(profile: TaxProfileCreate | None) -> dict[str, Any]:
     missing: list[str] = []
     for field in REQUIRED_BASE_FIELDS:
         value = getattr(profile, field, None)
-        if not value:
+        if field == "residential_status" and value == "resident":
+            # "resident" is the schema default; without explicit evidence it is
+            # safer to require confirmation than to silently assume it.
+            missing.append(field)
+        elif field == "employment_type" and value == "salaried" and not profile.salary_income:
+            missing.append(field)
+        elif not value:
             missing.append(field)
 
     if not _has_salary(profile):
