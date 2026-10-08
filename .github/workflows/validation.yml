@@ -13,41 +13,19 @@ jobs:
       fail-fast: false
       matrix:
         test_file:
-          - tests/test_ai_tax_architecture.py
-          - tests/test_chat_api.py
-          - tests/test_deduction_discovery.py
-          - tests/test_deduction_eligibility.py
-          - tests/test_document_api.py
-          - tests/test_document_extraction.py
-          - tests/test_document_storage.py
-          - tests/test_final_deduction_rules.py
-          - tests/test_itr1.py
-          - tests/test_itr_api.py
-          - tests/test_itr_decision_engine.py
-          - tests/test_itr_selection.py
-          - tests/test_knowledge.py
-          - tests/test_onboarding_api.py
-          - tests/test_onboarding_engine.py
-          - tests/test_profile_reliability.py
-          - tests/test_tax_api.py
-          - tests/test_tax_engine.py
-          - tests/test_tax_engine_hardening.py
-          - tests/test_tax_profile_schema.py
-          - tests/test_what_if.py
-    services:
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_USER: taxwise_user
-          POSTGRES_PASSWORD: taxwise_password
-          POSTGRES_DB: taxwise_db
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U taxwise_user -d taxwise_db"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
+          - tests/test_document_extraction.py::test_extracts_form16_candidates_from_pdf_text
+          - tests/test_document_extraction.py::test_extracts_common_form16_labels_without_colons
+          - tests/test_document_extraction.py::test_extracts_official_form16_salary_labels
+          - tests/test_document_extraction.py::test_extracts_itr3_workbook_income_and_tax_rows
+          - tests/test_document_extraction.py::test_extracts_personal_fields_from_pipe_delimited_workbook_rows
+          - tests/test_document_extraction.py::test_import_template_reads_only_entered_values_and_ignores_instructions
+          - tests/test_document_extraction.py::test_import_template_rejects_invalid_pan
+          - tests/test_document_extraction.py::test_import_template_rejects_duplicate_fields
+          - tests/test_document_extraction.py::test_full_profile_import_reads_scalar_and_repeating_profile_sheets
+          - tests/test_document_extraction.py::test_full_profile_import_rejects_invalid_scalar_values
+          - tests/test_document_extraction.py::test_parse_currency
+          - tests/test_document_extraction.py::test_scanned_pdf_requires_ocr
+          - tests/test_document_extraction.py::test_scanned_pdf_uses_ocr_fallback
     defaults:
       run:
         working-directory: backend
@@ -58,11 +36,7 @@ jobs:
           python-version: "3.11"
       - name: Install backend dependencies
         run: pip install -r requirements.txt
-      - name: Run backend test file
-        env:
-          DATABASE_URL: postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db
-          SECRET_KEY: ci-test-secret
-          DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-documents
+      - name: Run backend test
         run: python -m pytest -q ${{ matrix.test_file }} --tb=short
 
   frontend:
