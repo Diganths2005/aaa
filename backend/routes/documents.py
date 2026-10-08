@@ -71,7 +71,7 @@ async def upload_document(
     content = await file.read(MAX_DOCUMENT_BYTES + 1)
     if len(content) > MAX_DOCUMENT_BYTES:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Documents must be 10 MB or smaller")
-    storage_extension = ".pdf" if extension == ".pdf" else ".xlsx"
+    storage_extension = extension
     document_id = generate_id()
     document = UserDocument(
         id=document_id, user_id=current_user.id, document_type=document_type,
@@ -124,7 +124,7 @@ def process_document(
         stored_hash = (document.metadata_json or {}).get("content_sha256")
         if stored_hash and stored_hash != DOCUMENT_STORAGE.sha256(content):
             raise ValueError("Stored document content changed unexpectedly")
-        result = process_pdf(content) if storage_path.suffix.lower() == ".pdf" else process_spreadsheet(content)
+        result = process_pdf(content, document.document_type) if storage_path.suffix.lower() == ".pdf" else process_spreadsheet(content)
         candidates = [candidate.as_dict() for candidate in result.candidates]
         onboarding_values = _onboarding_values(candidates)
         extracted_pages = result.text.split("\f") if storage_path.suffix.lower() == ".pdf" else [result.text]
@@ -230,7 +230,10 @@ def get_document_content(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     if not document.storage_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document content is not available")
-    storage_path = DOCUMENT_STORAGE / Path(document.storage_key).name
+    try:
+        storage_path = DOCUMENT_STORAGE.path_for(document.storage_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid document storage key") from exc
     if not storage_path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document content is not available")
     media_type = "application/pdf" if storage_path.suffix.lower() == ".pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
