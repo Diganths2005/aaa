@@ -3,6 +3,7 @@ from typing import List
 from .field_extractor import extract_candidates
 from .models import ExtractionResult
 from .pdf_extractor import extract_pdf_pages
+from .structured_extractors import extract_structured_candidates
 
 
 def process_pdf(content: bytes, document_type: str = "other") -> ExtractionResult:
@@ -22,7 +23,10 @@ def process_pdf(content: bytes, document_type: str = "other") -> ExtractionResul
         "other": "OTHER",
     }
     source = source_map.get(document_type, "OTHER")
-    candidates = extract_candidates(pages, source=source)
+    structured = extract_structured_candidates(pages, document_type)
+    generic = extract_candidates(pages, source=source)
+    structured_fields = {item.field for item in structured}
+    candidates = structured + [item for item in generic if item.field not in structured_fields]
 
     # Never infer the document type from a single extracted field. The caller
     # selected the document type explicitly, so retain that provenance.
