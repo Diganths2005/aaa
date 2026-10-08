@@ -6,20 +6,9 @@ on:
   pull_request:
     branches: ["main"]
 
-permissions:
-  contents: write
-
 jobs:
   backend:
     runs-on: ubuntu-latest
-    strategy:
-      fail-fast: false
-      matrix:
-        test_file:
-          - tests/test_onboarding_api.py::test_session_message_and_confirmation_updates_profile
-          - tests/test_onboarding_api.py::test_onboarding_reject_does_not_create_profile_from_candidate
-          - tests/test_onboarding_api.py::test_document_candidate_with_tds_but_no_salary_does_not_crash
-          - tests/test_onboarding_api.py::test_document_candidate_does_not_duplicate_tds_tax_payment
     services:
       postgres:
         image: postgres:16
@@ -44,12 +33,12 @@ jobs:
           python-version: "3.11"
       - name: Install backend dependencies
         run: pip install -r requirements.txt
-      - name: Run backend test file
+      - name: Run backend tests
         env:
           DATABASE_URL: postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db
           SECRET_KEY: ci-test-secret
           DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-documents
-        run: python -m pytest -q ${{ matrix.test_file }} --tb=short
+        run: python -m pytest -q
 
   frontend:
     runs-on: ubuntu-latest
