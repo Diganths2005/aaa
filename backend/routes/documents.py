@@ -148,14 +148,28 @@ def process_document(
         db.commit()
         return {"document_id": document.id, "status": document.status, "page_count": result.page_count, "candidates": candidates, "onboarding_values": onboarding_values}
     except ValueError as exc:
+        db.rollback()
         db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
-        document.status = "FAILED"
-        document.processing_result = {"error": str(exc)}
-        db.commit()
+        document = db.query(UserDocument).filter(UserDocument.id == document_id, UserDocument.user_id == current_user.id).first()
+        if document:
+            document.status = "FAILED"
+            document.processing_result = {"error": str(exc)}
+            db.commit()
         if str(exc) == "DOCUMENT_REQUIRES_OCR":
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="DOCUMENT_REQUIRES_OCR") from exc
         detail = "Could not extract text from this PDF" if storage_path.suffix.lower() == ".pdf" else str(exc)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
+    except Exception as exc:
+        db.rollback()
+        document = db.query(UserDocument).filter(UserDocument.id == document_id, UserDocument.user_id == current_user.id).first()
+        if document:
+            document.status = "FAILED"
+            document.processing_result = {"error": "Document processing failed"}
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document processing failed. Please retry the document.",
+        ) from exc
 
 
 def _onboarding_values(candidates: list[dict]) -> dict:
