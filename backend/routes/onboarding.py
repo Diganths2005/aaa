@@ -46,7 +46,7 @@ def find_session(current_user: User, db: Session) -> OnboardingSession:
     return session
 
 
-def response(session: OnboardingSession, message: str, candidate: Optional[Dict[str, Any]] = None, requires_confirmation: bool = False, profile: Optional[TaxProfile] = None) -> OnboardingSessionResponse:
+def response(session: OnboardingSession, message: str, candidate: Optional[Dict[str, Any]] = None, requires_confirmation: bool = False, profile: Optional[TaxProfile] = None, reconciliation_warnings: Optional[list[Dict[str, Any]]] = None) -> OnboardingSessionResponse:
     state = start_state(session.state)
     question = next_question(state)
     return OnboardingSessionResponse(
@@ -60,6 +60,7 @@ def response(session: OnboardingSession, message: str, candidate: Optional[Dict[
         completed_fields=state.get("completed_fields", []),
         skipped_fields=state.get("skipped_fields", []),
         profile=profile_dict(profile),
+        reconciliation_warnings=reconciliation_warnings or [],
     )
 
 
@@ -166,6 +167,13 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
         ).first()
         if not document or document.status != "REQUIRES_CONFIRMATION":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document review is no longer available")
+    existing_profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
+    existing_documents = db.query(UserDocument).filter(UserDocument.user_id == current_user.id).all()
+    warnings = reconcile_candidate(
+        TaxProfileCreate.model_validate(existing_profile) if existing_profile else None,
+        candidate,
+        existing_documents,
+    )
     if request.action == "confirm":
         profile = persist_candidate(session, candidate, current_user, db)
         session.state = apply_candidate(state, candidate, "confirm")
@@ -183,7 +191,7 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
             ).delete(synchronize_session=False)
     db.commit()
     question = next_question(session.state)
-    return response(session, message_text + (f" {question.text}" if question else " Your Tax Profile is complete."), profile=profile)
+    return response(session, message_text + (f" {question.text}" if question else " Your Tax Profile is complete."), profile=profile, reconciliation_warnings=warnings)
 
 
 @router.post("/document-candidate", response_model=OnboardingSessionResponse)
