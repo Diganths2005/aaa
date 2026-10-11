@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 DEFAULT_STORAGE_ROOT = Path(os.getenv("DOCUMENT_STORAGE_DIR", ".taxwise-data/documents")).expanduser()
 
@@ -24,10 +24,10 @@ class DocumentStorage:
     def key_for(self, user_id: str, document_id: str, filename: str) -> str:
         user = self._safe_component(user_id)
         document = self._safe_component(document_id)
-        name = Path(filename).name
+        name = PurePosixPath(filename.replace("\\", "/")).name
         if not name or name in {".", ".."}:
             raise ValueError("Invalid filename")
-        return str(Path(user) / document / name)
+        return PurePosixPath(user, document, name).as_posix()
 
     def path_for(self, storage_key: str) -> Path:
         candidate = (self.root / storage_key).resolve()

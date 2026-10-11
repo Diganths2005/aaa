@@ -109,11 +109,46 @@ class SemanticKnowledgeBase:
             })
         return result
 
+    @staticmethod
+    def _remove_stale_records(collection: Any, records: list[dict[str, Any]], filters: RetrievalFilter) -> None:
+        current_ids = {
+            record["id"]
+            for record in records
+            if record["source_type"] == "knowledge"
+            or (filters.user_id and record["source_type"] == "user_document")
+        }
+        scopes = [
+            {
+                "$and": [
+                    {"source_type": "knowledge"},
+                    {"assessment_year": filters.assessment_year or ""},
+                ]
+            }
+        ]
+        if filters.user_id:
+            scopes.append({
+                "$and": [
+                    {"source_type": "user_document"},
+                    {"user_id": filters.user_id},
+                ]
+            })
+
+        for where in scopes:
+            existing_ids = collection.get(where=where, include=["metadatas"]).get("ids", [])
+            stale_ids = [
+                record_id
+                for record_id in existing_ids
+                if record_id not in current_ids
+            ]
+            if stale_ids:
+                collection.delete(ids=stale_ids)
+
     def retrieve(self, query: str, filters: RetrievalFilter, limit: int = 5) -> list[RetrievedContext]:
         if limit <= 0:
             return []
         client, collection = self._clients()
         records = self._knowledge_documents(self.root, filters.assessment_year) + self._user_documents(filters)
+        self._remove_stale_records(collection, records, filters)
         if records:
             embeddings = self._embedding(client, [item["text"] for item in records])
             collection.upsert(
