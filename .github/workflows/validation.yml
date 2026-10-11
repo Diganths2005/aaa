@@ -2,7 +2,7 @@ name: TaxWise validation
 
 on:
   push:
-    branches: ["main", "reliability-hardening"]
+    branches: ["main"]
   pull_request:
     branches: ["main"]
 
