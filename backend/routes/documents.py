@@ -1,6 +1,5 @@
 import json
 from pathlib import Path
-from tempfile import gettempdir
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.encoders import jsonable_encoder
@@ -15,12 +14,12 @@ from models.user import User
 from routes.auth import get_current_user
 from schemas.document import DocumentCreate, DocumentResponse, DocumentType, SUPPORTED_DOCUMENT_EXTENSIONS
 from services.knowledge import chunk_text
+from services.document_storage import DocumentStorage
 from utils.common import generate_id
 
 router = APIRouter(prefix="/documents", tags=["documents"])
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
-DOCUMENT_STORAGE = Path(gettempdir()) / "taxwise-documents"
-DOCUMENT_STORAGE.mkdir(exist_ok=True)
+DOCUMENT_STORAGE = DocumentStorage()
 
 
 @router.post("/", response_model=DocumentResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -72,13 +71,18 @@ async def upload_document(
     content = await file.read(MAX_DOCUMENT_BYTES + 1)
     if len(content) > MAX_DOCUMENT_BYTES:
         raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Documents must be 10 MB or smaller")
-    storage_extension = ".pdf" if extension == ".pdf" else ".xlsx"
+    storage_extension = extension
+    document_id = generate_id()
     document = UserDocument(
-        id=generate_id(), user_id=current_user.id, document_type=document_type,
+        id=document_id, user_id=current_user.id, document_type=document_type,
         original_filename=filename, assessment_year=assessment_year,
-        status="UPLOADED", storage_key=f"{generate_id()}{storage_extension}",
+        status="UPLOADED",
     )
-    (DOCUMENT_STORAGE / document.storage_key).write_bytes(content)
+    storage_key, content_sha256 = DOCUMENT_STORAGE.save(
+        current_user.id, document_id, f"{document_id}{storage_extension}", content
+    )
+    document.storage_key = storage_key
+    document.metadata_json = {"content_sha256": content_sha256, "size_bytes": len(content)}
     db.add(document)
     db.commit()
     db.refresh(document)
@@ -96,14 +100,31 @@ def process_document(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     if not document.storage_key:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document content is not available for processing")
-    storage_path = DOCUMENT_STORAGE / Path(document.storage_key).name
+    try:
+        storage_path = DOCUMENT_STORAGE.path_for(document.storage_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid document storage key") from exc
     if not storage_path.is_file():
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Document content is not available for processing")
+    if document.status in {"PROCESSED", "REQUIRES_CONFIRMATION", "CONFIRMED"} and document.processing_result:
+        result_data = document.processing_result
+        return {
+            "document_id": document.id,
+            "status": document.status,
+            "page_count": document.page_count,
+            "candidates": result_data.get("candidates", []),
+            "onboarding_values": result_data.get("onboarding_values", {}),
+        }
+
     document.status = "PROCESSING"
+    document.processing_result = None
     db.commit()
     try:
         content = storage_path.read_bytes()
-        result = process_pdf(content) if storage_path.suffix.lower() == ".pdf" else process_spreadsheet(content)
+        stored_hash = (document.metadata_json or {}).get("content_sha256")
+        if stored_hash and stored_hash != DOCUMENT_STORAGE.sha256(content):
+            raise ValueError("Stored document content changed unexpectedly")
+        result = process_pdf(content, document.document_type) if storage_path.suffix.lower() == ".pdf" else process_spreadsheet(content)
         candidates = [candidate.as_dict() for candidate in result.candidates]
         onboarding_values = _onboarding_values(candidates)
         extracted_pages = result.text.split("\f") if storage_path.suffix.lower() == ".pdf" else [result.text]
@@ -127,14 +148,28 @@ def process_document(
         db.commit()
         return {"document_id": document.id, "status": document.status, "page_count": result.page_count, "candidates": candidates, "onboarding_values": onboarding_values}
     except ValueError as exc:
+        db.rollback()
         db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
-        document.status = "FAILED"
-        document.processing_result = {"error": str(exc)}
-        db.commit()
+        document = db.query(UserDocument).filter(UserDocument.id == document_id, UserDocument.user_id == current_user.id).first()
+        if document:
+            document.status = "FAILED"
+            document.processing_result = {"error": str(exc)}
+            db.commit()
         if str(exc) == "DOCUMENT_REQUIRES_OCR":
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="DOCUMENT_REQUIRES_OCR") from exc
         detail = "Could not extract text from this PDF" if storage_path.suffix.lower() == ".pdf" else str(exc)
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
+    except Exception as exc:
+        db.rollback()
+        document = db.query(UserDocument).filter(UserDocument.id == document_id, UserDocument.user_id == current_user.id).first()
+        if document:
+            document.status = "FAILED"
+            document.processing_result = {"error": "Document processing failed"}
+            db.commit()
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail="Document processing failed. Please retry the document.",
+        ) from exc
 
 
 def _onboarding_values(candidates: list[dict]) -> dict:
@@ -209,7 +244,10 @@ def get_document_content(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     if not document.storage_key:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document content is not available")
-    storage_path = DOCUMENT_STORAGE / Path(document.storage_key).name
+    try:
+        storage_path = DOCUMENT_STORAGE.path_for(document.storage_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Invalid document storage key") from exc
     if not storage_path.is_file():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document content is not available")
     media_type = "application/pdf" if storage_path.suffix.lower() == ".pdf" else "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
@@ -235,5 +273,8 @@ def delete_document(
     db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
     db.delete(document)
     if document.storage_key:
-        (DOCUMENT_STORAGE / Path(document.storage_key).name).unlink(missing_ok=True)
+        try:
+            DOCUMENT_STORAGE.delete(document.storage_key)
+        except ValueError:
+            pass
     db.commit()

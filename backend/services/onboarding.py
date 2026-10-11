@@ -44,11 +44,14 @@ def initial_state(profile: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
         completed.append("pan_number")
     if profile.get("date_of_birth"):
         completed.append("date_of_birth")
-    for field in ("residential_status", "employment_type", "employer_name"):
-        if profile.get(field):
-            completed.append(field)
+    # Defaults such as "resident" and "salaried" are not treated as user-confirmed.
+    if profile.get("employer_name"):
+        completed.append("employer_name")
     if profile.get("salary_income"):
-        completed.extend(["salary_income", "salary_tds"])
+        completed.append("salary_income")
+        salary_tds = sum(Decimal(str(item.get("tds", 0) or 0)) for item in profile.get("salary_income", []))
+        if salary_tds > 0:
+            completed.append("salary_tds")
     for field in ("other_income", "house_property", "capital_gains", "business_income", "deductions", "taxes_paid", "bank_accounts", "documents"):
         if profile.get(field):
             completed.append(field)
@@ -126,7 +129,13 @@ def parse_answer(state: Dict[str, Any], text: str) -> Dict[str, Any]:
         employer = state.get("answers", {}).get("employer_name", "")
         return {"candidate_values": {"salary_income": [{"employer_name": employer, "gross_salary": value, "standard_deduction": 0, "professional_tax": 0, "tds": 0}]}, "requires_confirmation": True, "message": f"I understood ₹{value:,.0f} as your annual salary. Confirm?"}
     if field == "salary_tds":
-        return {"candidate_values": {"salary_tds": amount_as_number(re.search(r"(?:₹\s*)?([\d,.]+(?:\.\d+)?)", lower).group(1)) if re.search(r"(?:₹\s*)?([\d,.]+(?:\.\d+)?)", lower) else None}, "requires_confirmation": True, "message": "I found this TDS amount. Confirm?"}
+        if is_negative_answer(text):
+            return {"candidate_values": {}, "skip_field": "salary_tds", "requires_confirmation": False, "message": "Got it. I'll treat salary TDS as none for this onboarding session."}
+        match = re.search(r"(?:₹\s*)?([\d,.]+(?:\.\d+)?)", lower)
+        if not match:
+            raise ValueError("Please enter the salary TDS amount, or say no if no TDS was deducted.")
+        value = amount_as_number(match.group(1))
+        return {"candidate_values": {"salary_tds": value}, "requires_confirmation": True, "message": "I found this TDS amount. Confirm?"}
     if field in {"other_income", "house_property", "capital_gains", "business_income", "deductions", "taxes_paid", "documents"}:
         if is_negative_answer(text):
             return {"candidate_values": {}, "skip_field": field, "requires_confirmation": False, "message": f"Got it. I'll skip {field.replace('_', ' ')}."}
