@@ -67,7 +67,9 @@ class SemanticKnowledgeBase:
             markdown = content[match.end():] if match else content
             for index, passage in enumerate(chunk_text(markdown)):
                 documents.append({
-                    "id": "knowledge:" + hashlib.sha256(f"{path}:{index}".encode()).hexdigest(),
+                    "id": "knowledge:" + hashlib.sha256(
+                        f"{assessment_year}:{path}:{index}".encode()
+                    ).hexdigest(),
                     "text": passage,
                     "source": path.relative_to(root).as_posix(),
                     "assessment_year": assessment_year,
