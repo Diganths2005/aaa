@@ -14,10 +14,11 @@ class SemanticRAGUnavailable(RuntimeError):
 
 
 class SemanticKnowledgeBase:
-    """Optional semantic retrieval backed by Chroma and OpenAI embeddings.
+    """Semantic retrieval backed by Chroma and OpenAI embeddings.
 
-    The lexical retriever remains the deterministic fallback when embeddings
-    are not configured. No user document is indexed without its user_id.
+    Embeddings are persisted in Chroma and are generated only for new/changed
+    chunks. The lexical retriever remains the deterministic fallback when
+    semantic retrieval is unavailable.
     """
 
     def __init__(self, root: Path | None = None, db: Any | None = None) -> None:
@@ -49,6 +50,12 @@ class SemanticKnowledgeBase:
         return [item.embedding for item in response.data]
 
     @staticmethod
+    def _record_id(prefix: str, text: str, identity: str) -> str:
+        digest = hashlib.sha256(text.encode("utf-8")).hexdigest()
+        identity_digest = hashlib.sha256(identity.encode("utf-8")).hexdigest()
+        return f"{prefix}:{identity_digest}:{digest}"
+
+    @staticmethod
     def _knowledge_documents(root: Path, assessment_year: str) -> list[dict[str, Any]]:
         documents = []
         if not root.is_dir():
@@ -67,9 +74,11 @@ class SemanticKnowledgeBase:
             markdown = content[match.end():] if match else content
             for index, passage in enumerate(chunk_text(markdown)):
                 documents.append({
-                    "id": "knowledge:" + hashlib.sha256(
-                        f"{assessment_year}:{path}:{index}".encode()
-                    ).hexdigest(),
+                    "id": SemanticKnowledgeBase._record_id(
+                        "knowledge",
+                        passage,
+                        f"{assessment_year}:{path}:{index}",
+                    ),
                     "text": passage,
                     "source": path.relative_to(root).as_posix(),
                     "assessment_year": assessment_year,
@@ -97,7 +106,11 @@ class SemanticKnowledgeBase:
         result = []
         for chunk, document in rows.all():
             result.append({
-                "id": f"user:{filters.user_id}:{chunk.id}",
+                "id": self._record_id(
+                    "user",
+                    chunk.text,
+                    f"{filters.user_id}:{chunk.id}",
+                ),
                 "text": chunk.text,
                 "source": document.original_filename + (f" (page {chunk.page_number})" if chunk.page_number else ""),
                 "assessment_year": document.assessment_year,
@@ -113,20 +126,14 @@ class SemanticKnowledgeBase:
 
     @staticmethod
     def _remove_stale_records(collection: Any, records: list[dict[str, Any]], filters: RetrievalFilter) -> None:
-        current_ids = {
-            record["id"]
-            for record in records
-            if record["source_type"] == "knowledge"
-            or (filters.user_id and record["source_type"] == "user_document")
+        current_ids = {record["id"] for record in records}
+        knowledge_scope = {
+            "$and": [
+                {"source_type": "knowledge"},
+                {"assessment_year": filters.assessment_year or ""},
+            ]
         }
-        scopes = [
-            {
-                "$and": [
-                    {"source_type": "knowledge"},
-                    {"assessment_year": filters.assessment_year or ""},
-                ]
-            }
-        ]
+        scopes = [knowledge_scope]
         if filters.user_id:
             scopes.append({
                 "$and": [
@@ -136,14 +143,36 @@ class SemanticKnowledgeBase:
             })
 
         for where in scopes:
-            existing_ids = collection.get(where=where, include=["metadatas"]).get("ids", [])
-            stale_ids = [
-                record_id
-                for record_id in existing_ids
-                if record_id not in current_ids
-            ]
+            existing_ids = collection.get(where=where, include=[]).get("ids", [])
+            stale_ids = [record_id for record_id in existing_ids if record_id not in current_ids]
             if stale_ids:
                 collection.delete(ids=stale_ids)
+
+    @staticmethod
+    def _index_new_records(client: Any, collection: Any, records: list[dict[str, Any]]) -> None:
+        if not records:
+            return
+        existing_ids = set(collection.get(ids=[record["id"] for record in records], include=[]).get("ids", []))
+        missing = [record for record in records if record["id"] not in existing_ids]
+        if not missing:
+            return
+
+        embeddings = SemanticKnowledgeBase._embedding(client, [item["text"] for item in missing])
+        collection.upsert(
+            ids=[item["id"] for item in missing],
+            documents=[item["text"] for item in missing],
+            embeddings=embeddings,
+            metadatas=[
+                {
+                    "source": item["source"],
+                    "assessment_year": item["assessment_year"] or "",
+                    "source_type": item["source_type"],
+                    "document_id": item["metadata"].get("document_id", ""),
+                    "user_id": item["metadata"].get("user_id", ""),
+                }
+                for item in missing
+            ],
+        )
 
     def retrieve(self, query: str, filters: RetrievalFilter, limit: int = 5) -> list[RetrievedContext]:
         if limit <= 0:
@@ -151,23 +180,8 @@ class SemanticKnowledgeBase:
         client, collection = self._clients()
         records = self._knowledge_documents(self.root, filters.assessment_year) + self._user_documents(filters)
         self._remove_stale_records(collection, records, filters)
-        if records:
-            embeddings = self._embedding(client, [item["text"] for item in records])
-            collection.upsert(
-                ids=[item["id"] for item in records],
-                documents=[item["text"] for item in records],
-                embeddings=embeddings,
-                metadatas=[
-                    {
-                        "source": item["source"],
-                        "assessment_year": item["assessment_year"] or "",
-                        "source_type": item["source_type"],
-                        "document_id": item["metadata"].get("document_id", ""),
-                        "user_id": item["metadata"].get("user_id", ""),
-                    }
-                    for item in records
-                ],
-            )
+        self._index_new_records(client, collection, records)
+
         query_embedding = self._embedding(client, [query])[0]
         allowed_year = filters.assessment_year or ""
         where = {
@@ -180,13 +194,20 @@ class SemanticKnowledgeBase:
             query_embeddings=[query_embedding],
             n_results=limit,
             where=where,
+            include=["documents", "metadatas", "distances"],
         )
         contexts: list[RetrievedContext] = []
-        for text, metadata in zip(result.get("documents", [[]])[0], result.get("metadatas", [[]])[0]):
+        for text, metadata, distance in zip(
+            result.get("documents", [[]])[0],
+            result.get("metadatas", [[]])[0],
+            result.get("distances", [[]])[0],
+        ):
             if not text:
                 continue
             if metadata.get("source_type") == "user_document" and metadata.get("user_id") != filters.user_id:
                 continue
+            metadata = dict(metadata)
+            metadata["similarity"] = max(0.0, min(1.0, 1.0 - float(distance)))
             contexts.append(RetrievedContext(
                 text=text,
                 source_name=metadata.get("source", "unknown"),
