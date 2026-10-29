@@ -1,7 +1,8 @@
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 from fastapi.middleware.cors import CORSMiddleware
-from config import ALLOWED_ORIGINS, PROJECT_NAME, PROJECT_VERSION, API_V1_STR
+from sqlalchemy import text
+from config import ALLOWED_ORIGINS, PROJECT_NAME, PROJECT_VERSION, API_V1_STR, DATABASE_URL, OPENAI_API_KEY
 from database import Base, engine
 from routes import auth, chat, deductions, documents, itr, onboarding, tax_profile, tax, what_if
 from tax_engine.models import TaxEngineError
@@ -39,17 +40,35 @@ app.include_router(itr.router)
 app.include_router(tax.router)
 app.include_router(what_if.router, prefix=API_V1_STR)
 
+
 @app.get("/")
 def read_root():
     return {
         "message": f"Welcome to {PROJECT_NAME}",
         "version": PROJECT_VERSION,
-        "docs": "/docs"
+        "docs": "/docs",
     }
+
 
 @app.get("/health")
 def health_check():
-    return {"status": "healthy"}
+    checks = {"database": "ok", "document_storage": "ok", "semantic_rag": "configured" if OPENAI_API_KEY else "unavailable"}
+    try:
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+    except Exception:
+        checks["database"] = "unavailable"
+    try:
+        documents_root = documents.DOCUMENT_STORAGE.root
+        documents_root.mkdir(parents=True, exist_ok=True)
+        test_path = documents_root / ".healthcheck"
+        test_path.write_text("ok", encoding="utf-8")
+        test_path.unlink(missing_ok=True)
+    except Exception:
+        checks["document_storage"] = "unavailable"
+    overall = "healthy" if all(value in {"ok", "configured"} for value in checks.values()) else "degraded"
+    return {"status": overall, "checks": checks}
+
 
 if __name__ == "__main__":
     import uvicorn
