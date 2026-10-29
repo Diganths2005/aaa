@@ -1,5 +1,7 @@
 import json
 from pathlib import Path
+from zipfile import ZipFile, BadZipFile
+from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
 from fastapi.encoders import jsonable_encoder
@@ -20,6 +22,38 @@ from utils.common import generate_id
 router = APIRouter(prefix="/documents", tags=["documents"])
 MAX_DOCUMENT_BYTES = 10 * 1024 * 1024
 DOCUMENT_STORAGE = DocumentStorage()
+
+
+def _validate_document_content(extension: str, content: bytes) -> None:
+    """Validate the file signature before persisting or processing it."""
+    if extension == ".pdf":
+        if not content.startswith(b"%PDF-"):
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="The uploaded file is not a valid PDF",
+            )
+        return
+
+    if extension in {".xlsx", ".xlsm"}:
+        try:
+            with ZipFile(BytesIO(content)) as archive:
+                names = set(archive.namelist())
+                if "[Content_Types].xml" not in names or "xl/workbook.xml" not in names:
+                    raise HTTPException(
+                        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                        detail="The uploaded file is not a valid Excel workbook",
+                    )
+        except BadZipFile as exc:
+            raise HTTPException(
+                status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+                detail="The uploaded file is not a valid Excel workbook",
+            ) from exc
+        return
+
+    raise HTTPException(
+        status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+        detail="Unsupported document format",
+    )
 
 
 @router.post("/", response_model=DocumentResponse, status_code=status.HTTP_202_ACCEPTED)
@@ -51,35 +85,40 @@ async def upload_document(
 ):
     filename = file.filename or "document.pdf"
     extension = Path(filename).suffix.lower()
-    supported_types = {
-        "application/pdf",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        "application/vnd.ms-excel.sheet.macroEnabled.12",
-        "application/octet-stream",
-    }
     allowed_excel_mime_types = {
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         "application/vnd.ms-excel.sheet.macroEnabled.12",
         "application/octet-stream",
     }
-    is_pdf = extension == ".pdf" and file.content_type in {"application/pdf"} or extension == ".pdf" and file.content_type is None
+    is_pdf = extension == ".pdf" and file.content_type in {"application/pdf", None}
     is_excel = extension in {".xlsx", ".xlsm"} and (
-        file.content_type in allowed_excel_mime_types or file.content_type in {None, "application/octet-stream"}
+        file.content_type in allowed_excel_mime_types or file.content_type is None
     )
     if extension not in SUPPORTED_DOCUMENT_EXTENSIONS or not (is_pdf or is_excel):
-        raise HTTPException(status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE, detail="Upload a PDF or Excel workbook (.xlsx, .xlsm)")
+        raise HTTPException(
+            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
+            detail="Upload a PDF or Excel workbook (.xlsx, .xlsm)",
+        )
+
     content = await file.read(MAX_DOCUMENT_BYTES + 1)
     if len(content) > MAX_DOCUMENT_BYTES:
-        raise HTTPException(status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE, detail="Documents must be 10 MB or smaller")
-    storage_extension = extension
+        raise HTTPException(
+            status_code=status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            detail="Documents must be 10 MB or smaller",
+        )
+    _validate_document_content(extension, content)
+
     document_id = generate_id()
     document = UserDocument(
-        id=document_id, user_id=current_user.id, document_type=document_type,
-        original_filename=filename, assessment_year=assessment_year,
+        id=document_id,
+        user_id=current_user.id,
+        document_type=document_type,
+        original_filename=filename,
+        assessment_year=assessment_year,
         status="UPLOADED",
     )
     storage_key, content_sha256 = DOCUMENT_STORAGE.save(
-        current_user.id, document_id, f"{document_id}{storage_extension}", content
+        current_user.id, document_id, f"{document_id}{extension}", content
     )
     document.storage_key = storage_key
     document.metadata_json = {"content_sha256": content_sha256, "size_bytes": len(content)}
@@ -95,7 +134,10 @@ def process_document(
     current_user: User = Depends(get_current_user),
     db: Session = Depends(get_db),
 ):
-    document = db.query(UserDocument).filter(UserDocument.id == document_id, UserDocument.user_id == current_user.id).first()
+    document = db.query(UserDocument).filter(
+        UserDocument.id == document_id,
+        UserDocument.user_id == current_user.id,
+    ).first()
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     if not document.storage_key:
@@ -144,13 +186,26 @@ def process_document(
         db.add_all(chunks)
         document.status = "REQUIRES_CONFIRMATION" if candidates else "PROCESSED"
         document.page_count = result.page_count
-        document.processing_result = {"document_type": result.document_type, "candidates": candidates, "onboarding_values": onboarding_values}
+        document.processing_result = {
+            "document_type": result.document_type,
+            "candidates": candidates,
+            "onboarding_values": onboarding_values,
+        }
         db.commit()
-        return {"document_id": document.id, "status": document.status, "page_count": result.page_count, "candidates": candidates, "onboarding_values": onboarding_values}
+        return {
+            "document_id": document.id,
+            "status": document.status,
+            "page_count": result.page_count,
+            "candidates": candidates,
+            "onboarding_values": onboarding_values,
+        }
     except ValueError as exc:
         db.rollback()
         db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
-        document = db.query(UserDocument).filter(UserDocument.id == document_id, UserDocument.user_id == current_user.id).first()
+        document = db.query(UserDocument).filter(
+            UserDocument.id == document_id,
+            UserDocument.user_id == current_user.id,
+        ).first()
         if document:
             document.status = "FAILED"
             document.processing_result = {"error": str(exc)}
@@ -161,7 +216,10 @@ def process_document(
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=detail) from exc
     except Exception as exc:
         db.rollback()
-        document = db.query(UserDocument).filter(UserDocument.id == document_id, UserDocument.user_id == current_user.id).first()
+        document = db.query(UserDocument).filter(
+            UserDocument.id == document_id,
+            UserDocument.user_id == current_user.id,
+        ).first()
         if document:
             document.status = "FAILED"
             document.processing_result = {"error": "Document processing failed"}
@@ -185,7 +243,10 @@ def _onboarding_values(candidates: list[dict]) -> dict:
     date_of_birth = next((item["value"] for item in candidates if item["field"] == "date_of_birth"), None)
     name = next((item["value"] for item in candidates if item["field"] == "name"), None)
     if salary is not None:
-        values["salary_income"] = [{"employer_name": employer or "Document employer", "gross_salary": salary, "standard_deduction": 0, "professional_tax": 0, "tds": 0}]
+        values["salary_income"] = [{
+            "employer_name": employer or "Document employer",
+            "gross_salary": salary,
+        }]
     if tds is not None:
         values["salary_tds"] = tds
     if candidate_values.get("business_net_income") is not None:
@@ -197,9 +258,17 @@ def _onboarding_values(candidates: list[dict]) -> dict:
         }]
     other_income = []
     if candidate_values.get("other_income_interest") is not None:
-        other_income.append({"income_type": "interest", "description": "Bank interest", "amount": candidate_values["other_income_interest"], "tds": 0})
+        other_income.append({
+            "income_type": "interest",
+            "description": "Bank interest",
+            "amount": candidate_values["other_income_interest"],
+        })
     if candidate_values.get("other_income_dividend") is not None:
-        other_income.append({"income_type": "dividend", "description": "Dividend income", "amount": candidate_values["other_income_dividend"], "tds": 0})
+        other_income.append({
+            "income_type": "dividend",
+            "description": "Dividend income",
+            "amount": candidate_values["other_income_dividend"],
+        })
     if other_income:
         values["other_income"] = other_income
     if employer is not None:
@@ -210,7 +279,15 @@ def _onboarding_values(candidates: list[dict]) -> dict:
         values["date_of_birth"] = date_of_birth
     if name is not None:
         values["name"] = name
-    deductions = [{"section": section, "amount": candidate_values.get(field)} for field, section in (("deduction_80C", "80C"), ("deduction_80D", "80D"), ("deduction_80CCD_1B", "80CCD(1B)"), ("deduction_80G", "80G"))]
+    deductions = [
+        {"section": section, "amount": candidate_values.get(field)}
+        for field, section in (
+            ("deduction_80C", "80C"),
+            ("deduction_80D", "80D"),
+            ("deduction_80CCD_1B", "80CCD(1B)"),
+            ("deduction_80G", "80G"),
+        )
+    ]
     values["deductions"] = [item for item in deductions if item["amount"] is not None]
     taxes_paid = []
     if tds is not None:
