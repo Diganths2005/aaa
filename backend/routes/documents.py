@@ -235,20 +235,48 @@ def _onboarding_values(candidates: list[dict]) -> dict:
     profile_import = next((item["value"] for item in candidates if item["field"] == "profile_import"), None)
     if profile_import is not None:
         return json.loads(profile_import)
+
     candidate_values = {item["field"]: item["value"] for item in candidates}
-    salary = next((item["value"] for item in candidates if item["field"] == "salary_income"), None)
-    tds = next((item["value"] for item in candidates if item["field"] == "tds"), None)
-    employer = next((item["value"] for item in candidates if item["field"] == "employer_name"), None)
-    pan = next((item["value"] for item in candidates if item["field"] == "pan_number"), None)
-    date_of_birth = next((item["value"] for item in candidates if item["field"] == "date_of_birth"), None)
-    name = next((item["value"] for item in candidates if item["field"] == "name"), None)
+    employer = candidate_values.get("employer_name")
+    salary = candidate_values.get("salary_income")
+    salary_item = None
     if salary is not None:
-        values["salary_income"] = [{
-            "employer_name": employer or "Document employer",
-            "gross_salary": salary,
+        salary_item = {"employer_name": employer or "Document employer", "gross_salary": salary}
+        if candidate_values.get("standard_deduction") is not None:
+            salary_item["standard_deduction"] = candidate_values["standard_deduction"]
+        if candidate_values.get("professional_tax") is not None:
+            salary_item["professional_tax"] = candidate_values["professional_tax"]
+        if candidate_values.get("tds") is not None:
+            salary_item["tds"] = candidate_values["tds"]
+        values["salary_income"] = [salary_item]
+
+    if candidate_values.get("pension_income") is not None:
+        values["pension_income"] = [{
+            "payer_name": employer or "Document pension payer",
+            "amount": candidate_values["pension_income"],
+            "tds": candidate_values.get("tds", 0),
         }]
-    if tds is not None:
-        values["salary_tds"] = tds
+
+    other_income = []
+    if candidate_values.get("other_income_interest") is not None:
+        other_income.append({"income_type": "interest", "description": "Bank interest", "amount": candidate_values["other_income_interest"]})
+    if candidate_values.get("other_income_dividend") is not None:
+        other_income.append({"income_type": "dividend", "description": "Dividend income", "amount": candidate_values["other_income_dividend"]})
+    if candidate_values.get("other_income_family_pension") is not None:
+        other_income.append({"income_type": "family_pension", "description": "Family pension", "amount": candidate_values["other_income_family_pension"]})
+    if other_income:
+        values["other_income"] = other_income
+
+    if candidate_values.get("house_property_rent") is not None or candidate_values.get("house_property_municipal_tax") is not None or candidate_values.get("house_property_loan_interest") is not None:
+        values["house_properties"] = [{
+            "property_type": "let_out" if candidate_values.get("house_property_rent") is not None else "self_occupied",
+            "city": candidate_values.get("city") or "Document property",
+            "annual_rent": candidate_values.get("house_property_rent", 0),
+            "municipal_tax": candidate_values.get("house_property_municipal_tax", 0),
+            "home_loan_interest": candidate_values.get("house_property_loan_interest", 0),
+            "ownership_share": 100,
+        }]
+
     if candidate_values.get("business_net_income") is not None:
         values["business_income"] = [{
             "business_name": "Professional income",
@@ -256,48 +284,31 @@ def _onboarding_values(candidates: list[dict]) -> dict:
             "gross_receipts": candidate_values.get("business_receipts", candidate_values["business_net_income"]),
             "net_profit_or_loss": candidate_values["business_net_income"],
         }]
-    other_income = []
-    if candidate_values.get("other_income_interest") is not None:
-        other_income.append({
-            "income_type": "interest",
-            "description": "Bank interest",
-            "amount": candidate_values["other_income_interest"],
-        })
-    if candidate_values.get("other_income_dividend") is not None:
-        other_income.append({
-            "income_type": "dividend",
-            "description": "Dividend income",
-            "amount": candidate_values["other_income_dividend"],
-        })
-    if other_income:
-        values["other_income"] = other_income
-    if employer is not None:
-        values["employer_name"] = employer
-    if pan is not None:
-        values["pan_number"] = pan
-    if date_of_birth is not None:
-        values["date_of_birth"] = date_of_birth
-    if name is not None:
-        values["name"] = name
-    deductions = [
-        {"section": section, "amount": candidate_values.get(field)}
-        for field, section in (
-            ("deduction_80C", "80C"),
-            ("deduction_80D", "80D"),
-            ("deduction_80CCD_1B", "80CCD(1B)"),
-            ("deduction_80G", "80G"),
-        )
-    ]
-    values["deductions"] = [item for item in deductions if item["amount"] is not None]
+
+    deductions = []
+    for field, section in (
+        ("deduction_80C", "80C"), ("deduction_80D", "80D"), ("deduction_80CCD_1B", "80CCD(1B)"),
+        ("deduction_80G", "80G"), ("deduction_80E", "80E"), ("deduction_80EE", "80EE"),
+        ("deduction_80EEA", "80EEA"), ("deduction_80GG", "80GG"), ("deduction_80U", "80U"),
+        ("deduction_80DD", "80DD"), ("deduction_80DDB", "80DDB"),
+    ):
+        if candidate_values.get(field) is not None:
+            deductions.append({"section": section, "amount": candidate_values[field]})
+    if deductions:
+        values["deductions"] = deductions
+
     taxes_paid = []
-    if tds is not None:
-        taxes_paid.append({"tax_type": "tds", "amount": tds})
-    if candidate_values.get("advance_tax") is not None:
-        taxes_paid.append({"tax_type": "advance_tax", "amount": candidate_values["advance_tax"]})
+    for field, tax_type in (("tds", "tds"), ("advance_tax", "advance_tax"), ("self_assessment_tax", "self_assessment")):
+        if candidate_values.get(field) is not None:
+            taxes_paid.append({"tax_type": tax_type, "amount": candidate_values[field]})
     if taxes_paid:
         values["taxes_paid"] = taxes_paid
-    return jsonable_encoder(values)
 
+    for field, profile_field in (("pan_number", "pan_number"), ("date_of_birth", "date_of_birth"), ("name", "name"), ("address", "address"), ("employer_name", "employer_name")):
+        if candidate_values.get(field) is not None:
+            values[profile_field] = candidate_values[field]
+
+    return jsonable_encoder(values)
 
 @router.get("/", response_model=list[DocumentResponse])
 def list_documents(
