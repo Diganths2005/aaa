@@ -10,7 +10,12 @@ DATABASE_URL = os.getenv(
 )
 
 # JWT Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    if os.getenv("ENVIRONMENT", "development").lower() in {"production", "prod"}:
+        raise RuntimeError("SECRET_KEY must be configured in production")
+    # Development-only fallback is intentionally process-local and unpredictable.
+    SECRET_KEY = os.urandom(32).hex()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
@@ -27,6 +32,9 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.6-flash")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-4o-mini")
+OPENAI_EMBEDDING_MODEL = os.getenv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small")
 GITHUB_MODELS_TOKENS = [token.strip() for token in os.getenv("GITHUB_MODELS_TOKENS", os.getenv("GITHUB_TOKEN", "")).split(",") if token.strip()]
 GITHUB_MODELS_MODEL = os.getenv("GITHUB_MODELS_MODEL", "openai/gpt-4o-mini")
 GITHUB_MODELS_URL = os.getenv("GITHUB_MODELS_URL", "https://models.github.ai/inference")
+
+DOCUMENT_STORAGE_DIR = os.getenv("DOCUMENT_STORAGE_DIR", ".taxwise-data/documents")
