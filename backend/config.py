@@ -10,7 +10,12 @@ DATABASE_URL = os.getenv(
 )
 
 # JWT Configuration
-SECRET_KEY = os.getenv("SECRET_KEY", "your-secret-key-change-in-production")
+SECRET_KEY = os.getenv("SECRET_KEY")
+if not SECRET_KEY:
+    if os.getenv("ENVIRONMENT", "development").lower() in {"production", "prod"}:
+        raise RuntimeError("SECRET_KEY must be configured in production")
+    # Development-only fallback is intentionally process-local and unpredictable.
+    SECRET_KEY = os.urandom(32).hex()
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
