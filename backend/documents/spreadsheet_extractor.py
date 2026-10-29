@@ -4,7 +4,7 @@ import re
 from io import BytesIO
 from typing import Any
 
-from openpyxl import load_workbook
+from openpyxl import load_workbook\nfrom openpyxl.utils.cell import range_boundaries
 from pydantic import ValidationError
 
 from .field_extractor import extract_candidates, normalize_date_of_birth, parse_currency
@@ -65,165 +65,54 @@ IMPORT_FIELDS = {
 }
 
 
+def _cell_text(value: Any) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, float):
+        return str(int(value)) if value.is_integer() else str(value)
+    return str(value).strip()
+
+
 def _workbook_text(content: bytes) -> str:
-    workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-    rows: list[str] = []
-    for worksheet in workbook.worksheets:
-        rows.append(f"Sheet: {worksheet.title}")
-        for row in worksheet.iter_rows(values_only=True):
-            values = [str(value).strip() for value in row if value is not None and str(value).strip()]
-            if values:
-                rows.append(": ".join(values) if len(values) == 2 else " | ".join(values))
-    return "\n".join(rows)
+    """Read workbook values with sheet/cell context.
 
-
-def _import_template_candidates(content: bytes) -> list[ExtractedCandidate]:
-    workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-    worksheet = workbook["TaxWise Import Data"]
-    candidates: list[ExtractedCandidate] = []
-    seen_fields: set[str] = set()
-
-    for row in worksheet.iter_rows(min_row=4, min_col=1, max_col=2, values_only=True):
-        label, raw_value = row
-        if label is None or raw_value is None or not str(raw_value).strip():
-            continue
-
-        mapped = IMPORT_FIELDS.get(str(label).strip().casefold())
-        if mapped is None:
-            continue
-
-        field, value_type = mapped
-        if field in seen_fields:
-            raise ValueError(f"DUPLICATE_IMPORT_FIELD: {label}")
-        seen_fields.add(field)
-
-        value: Any
-        if value_type == "currency":
-            try:
-                value = parse_currency(str(raw_value))
-            except ValueError as exc:
-                raise ValueError(f"INVALID_IMPORT_AMOUNT: {label}") from exc
-        elif value_type == "pan":
-            value = str(raw_value).strip().upper()
-            if not re.fullmatch(r"[A-Z]{5}\d{4}[A-Z]", value):
-                raise ValueError("INVALID_IMPORT_PAN")
-        elif value_type == "date":
-            if isinstance(raw_value, (datetime, date)):
-                value = raw_value.date().isoformat() if isinstance(raw_value, datetime) else raw_value.isoformat()
-            else:
-                value = normalize_date_of_birth(str(raw_value).strip())
-                if value == str(raw_value).strip() or not re.fullmatch(r"\d{4}-\d{2}-\d{2}", value):
-                    raise ValueError("INVALID_IMPORT_DATE_OF_BIRTH")
-        else:
-            value = str(raw_value).strip()
-
-        candidates.append(ExtractedCandidate(field, value, "SPREADSHEET", "high", 1))
-
-    return candidates
-
-
-def _profile_import_candidates(content: bytes) -> list[ExtractedCandidate]:
-    workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-    scalar_sheet = workbook[PROFILE_IMPORT_SHEET]
-    scalar_values: dict[str, Any] = {}
-    taxpayer_name: str | None = None
-    seen_taxpayer_name = False
-
-    for row in scalar_sheet.iter_rows(min_row=4, min_col=1, max_col=2, values_only=True):
-        field, value = row
-        if field is None or value is None or not str(value).strip():
-            continue
-        field_name = str(field).strip()
-        if field_name == "taxpayer_name":
-            if seen_taxpayer_name:
-                raise ValueError("DUPLICATE_PROFILE_FIELD: taxpayer_name")
-            seen_taxpayer_name = True
-            taxpayer_name = str(value).strip()
-        elif field_name in TaxProfileCreate.model_fields:
-            if field_name in scalar_values:
-                raise ValueError(f"DUPLICATE_PROFILE_FIELD: {field_name}")
-            if field_name == "date_of_birth":
-                if isinstance(value, (datetime, date)):
-                    normalized_date = value.date() if isinstance(value, datetime) else value
-                    value = normalized_date.isoformat()
-                else:
-                    original_value = str(value).strip()
-                    value = normalize_date_of_birth(original_value)
-                    try:
-                        date.fromisoformat(value)
-                    except ValueError as exc:
-                        raise ValueError("INVALID_IMPORT_DATE_OF_BIRTH") from exc
-            elif isinstance(value, (datetime, date)):
-                value = value.isoformat()
-            scalar_values[field_name] = value
-        else:
-            raise ValueError(f"UNKNOWN_PROFILE_IMPORT_FIELD: {field_name}")
-
+    data_only=True is preferred for formulas because it exposes cached results.
+    If a workbook has formulas without cached results, we also load the formula
+    view and retain the formula text instead of silently dropping the cell.
+    Merged cells and blank rows are handled without corrupting column order.
+    """
     try:
-        validated_scalars = TaxProfileCreate.model_validate(scalar_values).model_dump(
-            mode="json", exclude_unset=True
-        )
-    except ValidationError as exc:
-        raise ValueError(f"INVALID_PROFILE_IMPORT: {exc}") from exc
+        values_wb = load_workbook(BytesIO(content), read_only=True, data_only=True)
+        formulas_wb = load_workbook(BytesIO(content), read_only=True, data_only=False)
+    except Exception as exc:
+        raise ValueError("INVALID_SPREADSHEET") from exc
 
-    profile_values: dict[str, Any] = dict(validated_scalars)
-    if taxpayer_name:
-        profile_values["name"] = taxpayer_name
+    rows: list[str] = []
+    for worksheet in values_wb.worksheets:
+        formula_sheet = formulas_wb[worksheet.title]
+        rows.append(f"Sheet: {worksheet.title}")
+        for row_index, value_row in enumerate(worksheet.iter_rows(values_only=True), start=1):
+            formula_row = next(formula_sheet.iter_rows(
+                min_row=row_index, max_row=row_index,
+                min_col=1, max_col=worksheet.max_column,
+                values_only=True
+            ))
+            parts: list[str] = []
+            for column_index, value in enumerate(value_row, start=1):
+                text = _cell_text(value)
+                if not text:
+                    formula = _cell_text(formula_row[column_index - 1])
+                    if formula.startswith("="):
+                        text = formula
+                if text:
+                    parts.append(text)
+            if parts:
+                rows.append(f"Row {row_index}: " + " | ".join(parts))
+    values_wb.close()
+    formulas_wb.close()
 
-    for field_name, model in PROFILE_COLLECTION_MODELS.items():
-        if field_name not in workbook.sheetnames:
-            continue
-        worksheet = workbook[field_name]
-        headers = [
-            str(value).strip() if value is not None else ""
-            for value in next(worksheet.iter_rows(min_row=3, max_row=3, values_only=True))
-        ]
-        if not headers or not headers[0] or len(headers) != len(set(headers)):
-            raise ValueError(f"INVALID_PROFILE_IMPORT_HEADERS: {field_name}")
-
-        records: list[dict[str, Any]] = []
-        for row in worksheet.iter_rows(min_row=4, values_only=True):
-            record = {
-                header: value.isoformat() if isinstance(value, (datetime, date)) else value
-                for header, value in zip(headers, row)
-                if header and value is not None and value != ""
-            }
-            if not record:
-                continue
-            unknown_fields = set(record) - set(model.model_fields)
-            if unknown_fields:
-                raise ValueError(
-                    f"UNKNOWN_PROFILE_IMPORT_FIELDS: {field_name}: {', '.join(sorted(unknown_fields))}"
-                )
-            try:
-                records.append(model.model_validate(record).model_dump(mode="json", exclude_unset=True))
-            except ValidationError as exc:
-                raise ValueError(f"INVALID_PROFILE_IMPORT: {field_name}: {exc}") from exc
-        if records:
-            profile_values[field_name] = records
-
-    if not profile_values:
-        return []
-    return [
-        ExtractedCandidate(
-            "profile_import",
-            json.dumps(profile_values, ensure_ascii=False, separators=(",", ":")),
-            "TAXWISE_PROFILE_WORKBOOK",
-            "high",
-            1,
-        )
-    ]
-
-
-def process_spreadsheet(content: bytes) -> ExtractionResult:
-    text = _workbook_text(content)
+    text = "\n".join(rows)
     if not text.strip():
         raise ValueError("EMPTY_SPREADSHEET")
-    workbook = load_workbook(BytesIO(content), read_only=True, data_only=True)
-    if PROFILE_IMPORT_SHEET in workbook.sheetnames:
-        candidates = _profile_import_candidates(content)
-    elif "TaxWise Import Data" in workbook.sheetnames:
-        candidates = _import_template_candidates(content)
-    else:
-        candidates = extract_candidates([text], source="SPREADSHEET")
-    return ExtractionResult(text, 1, candidates, "form_16" if any(item.field in {"salary_income", "tds"} for item in candidates) else "other")
+    return text
+
