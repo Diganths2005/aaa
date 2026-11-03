@@ -18,7 +18,7 @@ from tax_engine.calculator import calculate_tax, compare_regimes
 from tax_engine.deductions import ALLOWED_NEW, ALLOWED_OLD, calculate_deductions
 from tax_engine.income import taxpayer_age_category
 from tax_engine.models import TaxEngineError
-from services.knowledge import RetrievalFilter
+from services.knowledge import LocalTaxKnowledgeBase, RetrievalFilter
 from services.rag_pipeline import retrieve_hybrid
 from services.rag_verification import verify_contexts
 
