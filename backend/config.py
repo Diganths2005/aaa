@@ -3,16 +3,19 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+ENVIRONMENT = os.getenv("ENVIRONMENT", "development").lower()
+
 # Database Configuration
-DATABASE_URL = os.getenv(
-    "DATABASE_URL",
-    "postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db"
-)
+DATABASE_URL = os.getenv("DATABASE_URL")
+if not DATABASE_URL and ENVIRONMENT in {"production", "prod"}:
+    raise RuntimeError("DATABASE_URL must be configured in production")
+if not DATABASE_URL:
+    DATABASE_URL = "postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db"
 
 # JWT Configuration
 SECRET_KEY = os.getenv("SECRET_KEY")
 if not SECRET_KEY:
-    if os.getenv("ENVIRONMENT", "development").lower() in {"production", "prod"}:
+    if ENVIRONMENT in {"production", "prod"}:
         raise RuntimeError("SECRET_KEY must be configured in production")
     # Development-only fallback is intentionally process-local and unpredictable.
     SECRET_KEY = os.urandom(32).hex()
@@ -20,7 +23,11 @@ ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 # CORS Configuration
-ALLOWED_ORIGINS = os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+ALLOWED_ORIGINS = [
+    origin.strip()
+    for origin in os.getenv("ALLOWED_ORIGINS", "http://localhost:3000").split(",")
+    if origin.strip()
+]
 
 # API Configuration
 API_V1_STR = "/api/v1"

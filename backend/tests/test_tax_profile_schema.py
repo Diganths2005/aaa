@@ -1,3 +1,5 @@
+from decimal import Decimal
+
 import pytest
 from pydantic import ValidationError
 
@@ -23,6 +25,12 @@ def test_invalid_identity_formats_are_rejected(field, value):
         TaxProfileCreate(**{field: value})
 
 
+@pytest.mark.parametrize("date_of_birth", ["not-a-date", "1990-02-30", "2027-01-01"])
+def test_invalid_or_future_date_of_birth_is_rejected(date_of_birth):
+    with pytest.raises(ValidationError):
+        TaxProfileCreate(date_of_birth=date_of_birth)
+
+
 def test_invalid_ifsc_is_rejected():
     with pytest.raises(ValidationError):
         TaxProfileCreate(bank_accounts=[{"bank_name": "Bank", "account_number": "12345678", "ifsc_code": "INVALID"}])
@@ -31,6 +39,19 @@ def test_invalid_ifsc_is_rejected():
 def test_negative_normal_monetary_value_is_rejected():
     with pytest.raises(ValidationError):
         TaxProfileCreate(investments=[{"investment_type": "PPF", "amount": -1}])
+
+
+@pytest.mark.parametrize("amount", ["NaN", "Infinity", "1E100"])
+def test_non_finite_or_extreme_money_is_rejected(amount):
+    with pytest.raises(ValidationError):
+        TaxProfileCreate(salary_income=[{"employer_name": "Example", "gross_salary": amount}])
+
+
+def test_decimal_money_precision_is_preserved():
+    profile = TaxProfileCreate(
+        salary_income=[{"employer_name": "Example", "gross_salary": "100000.25"}]
+    )
+    assert profile.salary_income[0].gross_salary == Decimal("100000.25")
 
 
 def test_legitimate_business_loss_is_supported():

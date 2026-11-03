@@ -1,5 +1,5 @@
 -- Tax Profile upgrade for AY 2026-27.
--- Apply with the project's migration runner; do not drop tax_profiles.
+-- Back up the database, then apply manually with psql; no migration runner is configured.
 ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS citizenship VARCHAR;
 ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS nationality VARCHAR;
 ALTER TABLE tax_profiles ADD COLUMN IF NOT EXISTS financial_year VARCHAR NOT NULL DEFAULT '2025-26';
