@@ -1,5 +1,4 @@
 from dataclasses import dataclass
-from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
 from schemas.tax_profile import TaxProfileCreate
@@ -59,74 +58,11 @@ def _calculation_details(calculation: TaxCalculationResult) -> Dict[str, Any]:
     }
 
 
-def prepare_itr1(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "new") -> Dict[str, Any]:
-    eligibility = check_itr1_eligibility(profile)
-    if not eligibility.eligible:
-        raise ValueError("ITR-1 is not eligible: " + " ".join(eligibility.reasons))
-    calculation: TaxCalculationResult = calculate_tax(profile, regime, allow_expanded_income=True)
-    return {
-        "eligibility": eligibility.__dict__,
-        "assessment_year": profile.assessment_year,
-        "taxpayer": {
-            "name": taxpayer_name,
-            "pan": f"{profile.pan_number[:2]}******{profile.pan_number[-2:]}" if profile.pan_number else None,
-            "date_of_birth": profile.date_of_birth,
-            "address": profile.address,
-            "residential_status": profile.residential_status,
-        },
-        "income": {
-            "salary": calculation.income_from_salary,
-            "pension": calculation.income_from_pension,
-            "house_property": calculation.house_property_income,
-            "other_sources": calculation.other_sources_income,
-            "gross_total_income": calculation.gross_total_income,
-        },
-        "deductions": {
-            "total": calculation.total_deductions,
-            "items": profile.deductions,
-        },
-        "taxes_paid": {
-            "tds": calculation.tds,
-            "advance_tax": calculation.advance_tax,
-            "self_assessment_tax": calculation.self_assessment_tax,
-            "total": calculation.total_tax_paid,
-        },
-        "calculation": {
-            **_calculation_details(calculation),
-            "taxable_income": calculation.taxable_income,
-            "tax_before_rebate": calculation.tax_before_rebate,
-            "tax": calculation.total_tax_liability,
-            "rebate": calculation.rebate,
-            "surcharge": calculation.surcharge,
-            "cess": calculation.cess,
-            "total_tax": calculation.total_tax_liability,
-            "refund": calculation.refund,
-            "payable": calculation.balance_payable,
-            "regime": calculation.regime,
-        },
-        "bank_accounts": [_masked_account(account.model_dump()) for account in profile.bank_accounts],
-    }
-
-
-def prepare_return(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "new", requested_itr: Optional[str] = None) -> Dict[str, Any]:
-    selection = select_return(profile)
-    if selection.recommended_itr and not selection.preparation_supported:
-        reasons = " ".join(selection.reasons + selection.unsupported_conditions)
-        raise ValueError(
-            f"{selection.recommended_itr} is indicated by your profile, but this profile is outside the supported preparation scope. "
-            f"No preparation summary was generated. {reasons}"
-        )
-    if not selection.eligible:
-        details = selection.missing_information + selection.unsupported_conditions + selection.reasons
-        raise ValueError("TaxWise cannot prepare this return: " + " ".join(details))
-    if requested_itr and requested_itr != selection.recommended_itr:
-        raise ValueError(f"{requested_itr} is not the deterministic recommendation for this profile; TaxWise selected {selection.recommended_itr}.")
-
+def _base_preparation(profile: TaxProfileCreate, taxpayer_name: str, regime: str, selection: ITRSelection, *, expanded_income: bool) -> Dict[str, Any]:
+    calculation = calculate_tax(profile, regime, allow_expanded_income=expanded_income)
     is_itr3 = selection.recommended_itr == "ITR-3"
-    calculation: TaxCalculationResult = calculate_tax(profile, regime, allow_expanded_income=is_itr3)
-    has_foreign_information = bool(
-        profile.foreign_income_assets or profile.has_foreign_assets or profile.has_foreign_income
-    )
+    is_itr4 = selection.recommended_itr == "ITR-4"
+    has_foreign_information = bool(profile.foreign_income_assets or profile.has_foreign_assets or profile.has_foreign_income)
     has_capital_loss_carry_forward = calculation.capital_gains.capital_loss_carry_forward > 0
     has_property_loss_carry_forward = calculation.house_property_loss_carried_forward > 0
     return {
@@ -135,7 +71,9 @@ def prepare_return(profile: TaxProfileCreate, taxpayer_name: str, regime: str = 
         "support_status": {
             "income_and_tax_calculation": "Supported",
             "capital_gains_computation": "Supported for implemented transaction rules" if profile.capital_gains else "Not applicable",
-            "business_income_summary": "User-entered non-negative net profit included" if is_itr3 else "Not applicable",
+            "business_income_summary": "Supported for presumptive income" if is_itr4 else ("User-entered non-negative net profit included" if is_itr3 else "Not applicable"),
+            "itr2_capital_gains_schedule": "Supported for implemented transaction rules" if selection.recommended_itr == "ITR-2" and profile.capital_gains else "Not applicable",
+            "itr4_presumptive_schedule": "Supported for validated 44AD/44ADA/44AE entries" if is_itr4 else "Not applicable",
             "business_books_and_detailed_schedules": "Not supported; books, expenses, and depreciation are not modeled" if is_itr3 else "Not applicable",
             "statutory_itr3_schedules": "Not supported; this is a review summary, not a completed statutory return" if is_itr3 else "Not applicable",
             "foreign_schedules": "Not supported" if has_foreign_information else "Not applicable",
@@ -144,54 +82,42 @@ def prepare_return(profile: TaxProfileCreate, taxpayer_name: str, regime: str = 
             "return_filing_or_submission": "Not supported",
         },
         "assessment_year": profile.assessment_year,
-        "taxpayer": {
-            "name": taxpayer_name,
-            "pan": f"{profile.pan_number[:2]}******{profile.pan_number[-2:]}" if profile.pan_number else None,
-            "date_of_birth": profile.date_of_birth,
-            "address": profile.address,
-            "residential_status": profile.residential_status,
-        },
-        "income": {
-            "salary": calculation.income_from_salary,
-            "pension": calculation.income_from_pension,
-            "house_property": calculation.house_property_income,
-            "other_sources": calculation.other_sources_income,
-            "business": calculation.business_income,
-            "capital_gains": calculation.capital_gains,
-            "gross_total_income": calculation.gross_total_income,
-        },
+        "taxpayer": {"name": taxpayer_name, "pan": f"{profile.pan_number[:2]}******{profile.pan_number[-2:]}" if profile.pan_number else None, "date_of_birth": profile.date_of_birth, "address": profile.address, "residential_status": profile.residential_status},
+        "income": {"salary": calculation.income_from_salary, "pension": calculation.income_from_pension, "house_property": calculation.house_property_income, "other_sources": calculation.other_sources_income, "business": calculation.business_income, "capital_gains": calculation.capital_gains, "gross_total_income": calculation.gross_total_income},
         "schedules": {
-            "salary_and_pension": [
-                *[item.model_dump(mode="json") for item in profile.salary_income],
-                *[item.model_dump(mode="json") for item in profile.pension_income],
-            ],
+            "salary_and_pension": [*[item.model_dump(mode="json") for item in profile.salary_income], *[item.model_dump(mode="json") for item in profile.pension_income]],
             "house_property": [item.model_dump(mode="json") for item in profile.house_properties],
             "other_sources": [item.model_dump(mode="json") for item in profile.other_income],
             "capital_gains": [item.model_dump(mode="json") for item in calculation.capital_gains.transactions],
             "business_income": [item.model_dump(mode="json") for item in profile.business_income],
+            "foreign_income_assets": [item.model_dump(mode="json") for item in profile.foreign_income_assets],
         },
         "deductions": {"total": calculation.total_deductions, "items": profile.deductions},
-        "taxes_paid": {
-            "tds": calculation.tds,
-            "advance_tax": calculation.advance_tax,
-            "self_assessment_tax": calculation.self_assessment_tax,
-            "total": calculation.total_tax_paid,
-        },
-        "calculation": {
-            **_calculation_details(calculation),
-            "taxable_income": calculation.taxable_income,
-            "tax_before_rebate": calculation.tax_before_rebate,
-            "tax": calculation.total_tax_liability,
-            "rebate": calculation.rebate,
-            "surcharge": calculation.surcharge,
-            "cess": calculation.cess,
-            "total_tax": calculation.total_tax_liability,
-            "refund": calculation.refund,
-            "payable": calculation.balance_payable,
-            "regime": calculation.regime,
-        },
+        "taxes_paid": {"tds": calculation.tds, "advance_tax": calculation.advance_tax, "self_assessment_tax": calculation.self_assessment_tax, "total": calculation.total_tax_paid},
+        "calculation": {**_calculation_details(calculation), "taxable_income": calculation.taxable_income, "tax_before_rebate": calculation.tax_before_rebate, "tax": calculation.total_tax_liability, "rebate": calculation.rebate, "surcharge": calculation.surcharge, "cess": calculation.cess, "total_tax": calculation.total_tax_liability, "refund": calculation.refund, "payable": calculation.balance_payable, "regime": calculation.regime},
         "bank_accounts": [_masked_account(account.model_dump()) for account in profile.bank_accounts],
     }
+
+
+def prepare_itr1(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "new") -> Dict[str, Any]:
+    eligibility = check_itr1_eligibility(profile)
+    if not eligibility.eligible:
+        raise ValueError("ITR-1 is not eligible: " + " ".join(eligibility.reasons))
+    selection = select_return(profile)
+    return _base_preparation(profile, taxpayer_name, regime, selection, expanded_income=False)
+
+
+def prepare_return(profile: TaxProfileCreate, taxpayer_name: str, regime: str = "new", requested_itr: Optional[str] = None) -> Dict[str, Any]:
+    selection = select_return(profile)
+    if selection.recommended_itr and not selection.preparation_supported:
+        reasons = " ".join(selection.reasons + selection.unsupported_conditions)
+        raise ValueError(f"{selection.recommended_itr} is indicated by your profile, but this profile is outside the supported preparation scope. No preparation summary was generated. {reasons}")
+    if not selection.eligible:
+        details = selection.missing_information + selection.unsupported_conditions + selection.reasons
+        raise ValueError("TaxWise cannot prepare this return: " + " ".join(details))
+    if requested_itr and requested_itr != selection.recommended_itr:
+        raise ValueError(f"{requested_itr} is not the deterministic recommendation for this profile; TaxWise selected {selection.recommended_itr}.")
+    return _base_preparation(profile, taxpayer_name, regime, selection, expanded_income=selection.recommended_itr in {"ITR-3", "ITR-4"})
 
 
 def explain_itr_question(question: str, preparation: Dict[str, Any]) -> str:
