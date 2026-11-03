@@ -43,7 +43,18 @@ def verify_contexts(
                 ok = False
                 reason = "knowledge note has no declared rule/source provenance"
             else:
-                reason = "active assessment-year knowledge note with declared provenance"
+                try:
+                    import json
+                    import re
+                    note_text = source_path.read_text(encoding="utf-8")
+                    match = re.match(r"\\A<!--\\s*(\\{.*?\\})\\s*-->\\s*", note_text, flags=re.DOTALL)
+                    note_metadata = json.loads(match.group(1)) if match else {}
+                    note_sources = note_metadata.get("source_files") or []
+                    ok = ok and bool(note_sources)
+                    ok = ok and all((source_path.parent / item).exists() for item in note_sources)
+                except (OSError, ValueError, json.JSONDecodeError):
+                    ok = False
+                reason = "active assessment-year note with verified source-file provenance" if ok else "declared source provenance could not be verified"
 
         if context.assessment_year not in (None, assessment_year):
             ok = False
