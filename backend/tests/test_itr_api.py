@@ -168,5 +168,5 @@ def test_itr4_api_prepares_presumptive_income():
     assert selection.json()["preparation_supported"] is True
     preparation = client.post("/api/itr/prepare", headers=headers, json={"regime": "new", "itr_form": "ITR-4"})
     assert preparation.status_code == 200
-    assert preparation.json()["income"]["business"] == "300000"
+    assert preparation.json()["income"]["business"] == 300000
     assert preparation.json()["support_status"]["itr4_presumptive_schedule"].startswith("Supported")
