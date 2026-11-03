@@ -16,6 +16,7 @@ Base.metadata.create_all(bind=engine)
 
 with engine.connect() as connection:
     assert connection.execute(text("SELECT 1")).scalar() == 1
+    assert connection.execute(text("SELECT to_regclass('public.revoked_tokens')")).scalar() == "revoked_tokens"
 
 email = f"postgres-smoke-{uuid.uuid4()}@example.com"
 user_id = generate_id()
