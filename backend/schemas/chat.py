@@ -8,4 +8,5 @@ class ChatMessageRequest(BaseModel):
 class ChatMessageResponse(BaseModel):
     answer: str
     sources: list[str] = []
+    source_details: list[dict] = []
     mode: str = "tax-assistant"
