@@ -160,20 +160,20 @@ const DocumentsPage: React.FC = () => {
   const errorCount = documents.filter((item) => item.status === 'FAILED').length;
 
   return (
-    <main className="min-h-screen bg-[#F8FAFC] px-4 py-8 text-[#0F172A] sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
-        <header className="mb-7 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <main className="page-shell">
+      <div className="page-container">
+        <header className="mb-8 flex flex-col gap-5 sm:flex-row sm:items-center sm:justify-between">
           <div>
-            <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Document center</p>
-            <h1 className="mt-2 text-3xl font-bold">Your tax documents</h1>
-            <p className="mt-2 text-sm text-[#64748B]">Upload by document type. Extracted information stays unconfirmed until you review it.</p>
+            <p className="section-kicker">Document center</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight sm:text-4xl">Your tax documents</h1>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">Upload by document type. Extracted information stays unconfirmed until you review it.</p>
           </div>
-          <div className="flex gap-3"><Link href="/dashboard" className="rounded-xl border border-[#CBD5E1] bg-white px-4 py-2.5 text-sm font-semibold">← Dashboard</Link><ReturnToDashboard /></div>
+          <div className="flex flex-wrap gap-3"><Link href="/dashboard" className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">← Dashboard</Link><ReturnToDashboard /></div>
         </header>
 
-        <section className="mb-6 grid gap-3 sm:grid-cols-4" aria-label="Document processing summary">
+        <section className="mb-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-4" aria-label="Document processing summary">
           {[['Uploaded', documents.length], ['Processed', processedCount], ['Review required', reviewCount], ['Errors', errorCount]].map(([label, count]) => (
-            <div key={label} className="card p-4"><p className="text-xs font-semibold uppercase tracking-wide text-[#64748B]">{label}</p><p className="mt-2 text-2xl font-bold">{count}</p></div>
+            <div key={label} className="card p-4 transition-transform hover:-translate-y-0.5"><p className="text-xs font-semibold uppercase tracking-wide text-[#64748B]">{label}</p><p className="mt-2 text-2xl font-bold">{count}</p></div>
           ))}
         </section>
 
@@ -208,12 +208,12 @@ const DocumentsPage: React.FC = () => {
           </section>
         )}
 
-        <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <section className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
           {documentCategories.map((category) => (
-            <article key={category.title} className="card flex flex-col p-5">
+            <article key={category.title} className="card group flex flex-col p-5 transition-all hover:-translate-y-1 hover:shadow-lg">
               <div className="flex items-start justify-between gap-3">
                 <div><h2 className="text-lg font-semibold">{category.title}</h2><p className="mt-2 text-sm leading-6 text-[#64748B]">{category.description}</p></div>
-                <span aria-hidden="true" className="rounded-xl bg-[#ECFDF5] px-3 py-2 text-xl">📄</span>
+                <span aria-hidden="true" className="rounded-2xl bg-emerald-50 px-3.5 py-3 text-xl ring-1 ring-emerald-100">📄</span>
               </div>
               <label className={`mt-5 inline-flex cursor-pointer items-center justify-center rounded-xl px-4 py-2.5 text-sm font-semibold text-white ${activeUpload ? 'cursor-not-allowed bg-[#94A3B8]' : 'bg-[#047857] hover:bg-[#065F46]'}`}>
                 Upload {category.title}
@@ -223,7 +223,7 @@ const DocumentsPage: React.FC = () => {
           ))}
         </section>
 
-        <section className="mt-8 card p-6">
+        <section className="mt-8 card p-6 sm:p-7">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <div><h2 className="text-xl font-bold">Uploaded documents</h2><p className="mt-1 text-sm text-[#64748B]">Open any item requiring confirmation to review the original document and extracted fields.</p></div>
             <Link href="/tax-profile" className="text-sm font-semibold text-[#047857]">Enter information manually →</Link>

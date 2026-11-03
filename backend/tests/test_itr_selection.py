@@ -40,10 +40,11 @@ def test_selector_recommends_itr2_for_multiple_capital_gain_transactions():
     selection = select_return(profile)
     assert selection.eligible is True
     assert selection.recommended_itr == "ITR-2"
-    assert selection.preparation_supported is False
+    assert selection.preparation_supported is True
 
-    with pytest.raises(ValueError, match="outside the supported preparation scope"):
-        prepare_return(profile, "Test Taxpayer")
+    preparation = prepare_return(profile, "Test Taxpayer")
+    assert preparation["itr_form"] == "ITR-2"
+    assert preparation["schedules"]["capital_gains"]
 
 
 def test_selector_recommends_itr4_only_for_presumptive_income():
@@ -62,9 +63,10 @@ def test_selector_recommends_itr4_only_for_presumptive_income():
     selection = select_return(profile)
     assert selection.eligible is True
     assert selection.recommended_itr == "ITR-4"
-    assert selection.preparation_supported is False
-    with pytest.raises(ValueError, match="outside the supported preparation scope"):
-        prepare_return(profile, "Test Taxpayer")
+    assert selection.preparation_supported is True
+    preparation = prepare_return(profile, "Test Taxpayer")
+    assert preparation["itr_form"] == "ITR-4"
+    assert preparation["support_status"]["itr4_presumptive_schedule"].startswith("Supported")
 
 
 def test_selector_recommends_itr3_for_non_presumptive_business_income():

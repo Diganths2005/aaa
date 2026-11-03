@@ -19,7 +19,7 @@ This roadmap separates active code paths from work that still needs implementati
 - Foreign schedules, persistent loss-history management, and full business books/expense/depreciation computation.
 - Per-field editing of extracted document candidates, document conflict reconciliation, OCR setup automation, protected persistent file storage, and retention controls.
 - Knowledge-note coverage beyond current project rules, reviewed external rule-source synchronization, and additional assessment years.
-- Production deployment hardening, including secrets management, rate limiting, audit logging, encryption/retention policy, monitoring, and formal security/compliance review.
+- Production hardening beyond the current baseline remains: secrets management, rate limiting, audit logging, encryption/retention policy, monitoring, and formal security/compliance review.
 
 ## Validation
 

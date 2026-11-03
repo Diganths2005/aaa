@@ -365,3 +365,55 @@ def test_excel_upload_accepts_browser_generic_mime_type():
     )
     assert upload.status_code == 202, upload.text
     assert upload.json()["original_filename"] == "TaxWise_Test_Form16.xlsx"
+
+
+def test_invalid_document_uploads_fail_without_creating_a_tax_profile():
+    headers = headers_for_user()
+    invalid_uploads = [
+        (("unsupported.txt", b"not a tax document", "text/plain"), 415),
+        (("empty.pdf", b"", "application/pdf"), 415),
+        (("corrupt.pdf", b"%PDF-not-a-valid-document", "application/pdf"), 202),
+        (
+            (
+                "corrupt.xlsx",
+                b"not-an-excel-workbook",
+                "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            ),
+            415,
+        ),
+        (
+            (
+                "oversized.pdf",
+                b"%PDF-" + b"x" * (10 * 1024 * 1024),
+                "application/pdf",
+            ),
+            413,
+        ),
+    ]
+
+    corrupt_pdf_id = None
+    for (uploaded_file, expected_status) in invalid_uploads:
+        response = client.post(
+            "/api/v1/documents/upload",
+            headers=headers,
+            files={"file": uploaded_file},
+        )
+        assert response.status_code == expected_status, response.text
+        if uploaded_file[0] == "corrupt.pdf":
+            corrupt_pdf_id = response.json()["id"]
+
+    assert corrupt_pdf_id is not None
+    processed = client.post(
+        f"/api/v1/documents/{corrupt_pdf_id}/process",
+        headers=headers,
+    )
+    assert processed.status_code == 422
+    assert client.get("/api/v1/tax-profiles/current", headers=headers).status_code == 404
+
+
+def test_document_upload_requires_authentication():
+    response = client.post(
+        "/api/v1/documents/upload",
+        files={"file": ("sample.pdf", pdf_bytes(), "application/pdf")},
+    )
+    assert response.status_code == 401

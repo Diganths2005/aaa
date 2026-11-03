@@ -18,90 +18,67 @@
   --red: #DC2626;
 }
 
-html {
-  scroll-behavior: smooth;
-}
+html { scroll-behavior: smooth; }
 
 body {
   @apply bg-surface text-text antialiased;
   font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background-image: radial-gradient(circle at top right, rgba(16,185,129,.07), transparent 28rem);
 }
 
-* {
-  box-sizing: border-box;
-}
+* { box-sizing: border-box; }
 
-input, textarea, select, button, a {
-  @apply transition-all duration-200;
-}
+input, textarea, select, button, a { @apply transition-all duration-200; }
 
 input, textarea, select {
-  @apply focus:outline-none focus:ring-2 focus:ring-accent/60 focus:border-accent;
+  @apply w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-accent/40 focus:border-accent;
 }
 
-button:focus-visible,
-a:focus-visible,
-input:focus-visible,
-select:focus-visible {
+textarea { @apply min-h-28 resize-y; }
+
+button, a { @apply active:translate-y-px; }
+
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible, textarea:focus-visible {
   @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-white;
 }
 
-.card {
-  @apply rounded-panel border border-border bg-card shadow-soft;
-}
-
-.metric-card {
-  @apply card p-5;
-}
+.card { @apply rounded-panel border border-border bg-card shadow-soft; }
+.metric-card { @apply card p-5 hover:-translate-y-0.5 hover:shadow-lg; }
 
 .sidebar-link {
-  @apply flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium text-white/80 transition-colors hover:bg-white/10 hover:text-white;
+  @apply flex items-center gap-3 rounded-xl px-3.5 py-2.5 text-sm font-medium text-white/80 transition-all hover:bg-white/10 hover:text-white;
 }
 
 .sidebar-link.active {
-  @apply bg-accent/20 text-white ring-1 ring-white/20;
+  @apply bg-white/10 text-white ring-1 ring-white/15 shadow-sm;
 }
 
 .chip {
-  @apply inline-flex items-center rounded-full border border-border bg-mint px-2.5 py-1 text-xs font-medium text-primary;
+  @apply inline-flex items-center rounded-full border border-emerald-100 bg-mint px-2.5 py-1 text-xs font-medium text-primary;
 }
 
-@media print {
-  @page {
-    margin: 14mm;
-  }
+.section-kicker {
+  @apply text-xs font-semibold uppercase tracking-[0.18em] text-secondary;
+}
 
+.page-shell { @apply min-h-screen bg-surface px-4 py-6 text-text sm:px-6 lg:px-8; }
+.page-container { @apply mx-auto max-w-7xl; }
+.surface-panel { @apply rounded-2xl border border-slate-200/80 bg-white/95 shadow-soft backdrop-blur; }
+
+@media print {
+  @page { margin: 14mm; }
   body {
     background: #fff !important;
     color: #0f172a !important;
     print-color-adjust: exact;
     -webkit-print-color-adjust: exact;
   }
-
-  .print-hidden,
-  nav,
-  aside {
-    display: none !important;
-  }
-
-  main {
-    min-height: 0 !important;
-    padding: 0 !important;
-  }
-
-  .card,
-  .shadow-soft {
-    box-shadow: none !important;
-  }
-
-  .print-break-inside-avoid {
-    break-inside: avoid;
-    page-break-inside: avoid;
-  }
+  .print-hidden, nav, aside { display: none !important; }
+  main { min-height: 0 !important; padding: 0 !important; }
+  .card, .shadow-soft { box-shadow: none !important; }
+  .print-break-inside-avoid { break-inside: avoid; page-break-inside: avoid; }
 }
 
 @media (max-width: 640px) {
-  .card {
-    @apply rounded-2xl;
-  }
+  .card { @apply rounded-2xl; }
 }
