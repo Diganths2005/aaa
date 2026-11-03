@@ -9,6 +9,20 @@ on:
 jobs:
   backend:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: taxwise_user
+          POSTGRES_PASSWORD: taxwise_password
+          POSTGRES_DB: taxwise_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U taxwise_user -d taxwise_db"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 10
     defaults:
       run:
         working-directory: backend
@@ -25,6 +39,12 @@ jobs:
           SECRET_KEY: ci-test-secret
           DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-documents
         run: python -m pytest -q --tb=short
+      - name: Verify real PostgreSQL persistence
+        env:
+          DATABASE_URL: postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db
+          SECRET_KEY: ci-postgres-secret
+          DOCUMENT_STORAGE_DIR: ${{ runner.temp }}/taxwise-postgres-documents
+        run: python scripts/verify_postgres.py
 
   frontend:
     runs-on: ubuntu-latest
