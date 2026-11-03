@@ -21,6 +21,7 @@ from tax_engine.models import TaxEngineError
 from services.knowledge import LocalTaxKnowledgeBase, RetrievalFilter
 from services.rag_pipeline import retrieve_hybrid
 from services.rag_verification import verify_contexts
+from services.ai_evaluation import SafetyCase, evaluate_answer
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -472,7 +473,11 @@ def chat_with_taxwise(
                         temperature=0.2,
                     )
                     provider_answer = completion.choices[0].message.content if completion.choices else None
-                    if provider_answer and _is_safe_provider_answer(provider_answer, structured_context):
+                    safety_result = evaluate_answer(
+                        SafetyCase(message, provider_answer or "", structured_context, requires_sources=True),
+                        [item.source_name for item in knowledge_context],
+                    )
+                    if provider_answer and _is_safe_provider_answer(provider_answer, structured_context) and safety_result.passed:
                         break
                 except Exception as exc:
                     print(f"GitHub Models attempt failed: {type(exc).__name__}")
