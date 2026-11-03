@@ -136,3 +136,20 @@ def test_end_to_end_user_flow_upload_confirm_calculate_and_prepare():
     preparation = client.post("/api/itr/prepare", headers=headers, json={"regime": "new"})
     assert preparation.status_code == 200
     assert preparation.json()["itr_form"] == "ITR-1"
+
+
+def test_signup_rejects_weak_credentials_and_invalid_email():
+    weak = client.post("/api/v1/auth/signup", json={
+        "email": "bad-email",
+        "first_name": "Test",
+        "last_name": "User",
+        "password": "short",
+    })
+    assert weak.status_code == 422
+    invalid_email = client.post("/api/v1/auth/signup", json={
+        "email": "not-an-email",
+        "first_name": "Test",
+        "last_name": "User",
+        "password": "password123",
+    })
+    assert invalid_email.status_code == 422
