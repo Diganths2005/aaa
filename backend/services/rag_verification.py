@@ -47,11 +47,11 @@ def verify_contexts(
                     import json
                     import re
                     note_text = source_path.read_text(encoding="utf-8")
-                    match = re.match(r"\\A<!--\\s*(\\{.*?\\})\\s*-->\\s*", note_text, flags=re.DOTALL)
+                    match = re.match(r"\A<!--\s*(\{.*?\})\s*-->\s*", note_text, flags=re.DOTALL)
                     note_metadata = json.loads(match.group(1)) if match else {}
                     note_sources = note_metadata.get("source_files") or []
                     ok = ok and bool(note_sources)
-                    ok = ok and all((source_path.parent / item).exists() for item in note_sources)
+                    ok = ok and all((knowledge_root.parent / item).exists() for item in note_sources)
                 except (OSError, ValueError, json.JSONDecodeError):
                     ok = False
                 reason = "active assessment-year note with verified source-file provenance" if ok else "declared source provenance could not be verified"
