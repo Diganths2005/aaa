@@ -326,6 +326,56 @@ def _is_safe_provider_answer(text: str, verified_context: dict[str, Any] | None 
     return True
 
 
+@router.get("/trace")
+def tax_trace(
+    metric: str = "tax_liability",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return a deterministic, inspectable trace for a tax result."""
+    profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tax Profile not found")
+    profile_payload = TaxProfileCreate.model_validate(profile)
+    comparison = compare_regimes(profile_payload)
+    regime = comparison.recommended_regime if comparison.recommended_regime != "equal" else "new"
+    result = comparison.new_regime if regime == "new" else comparison.old_regime
+
+    nodes = [
+        {"id": "gross_total_income", "label": "Gross total income", "value": result.gross_total_income, "source": "Tax Profile + Tax Engine"},
+        {"id": "deductions", "label": "Allowed deductions", "value": result.total_deductions, "source": "Tax Profile + deduction rules"},
+        {"id": "taxable_income", "label": "Taxable income", "value": result.taxable_income, "source": "Tax Engine"},
+        {"id": "tax_before_rebate", "label": "Tax before rebate", "value": result.tax_before_rebate, "source": "Tax Engine"},
+        {"id": "rebate", "label": "Rebate", "value": result.rebate, "source": "Assessment-year rules"},
+        {"id": "surcharge", "label": "Surcharge", "value": result.surcharge, "source": "Assessment-year rules"},
+        {"id": "cess", "label": "Health and education cess", "value": result.cess, "source": "Assessment-year rules"},
+        {"id": "tax_liability", "label": "Final tax liability", "value": result.total_tax_liability, "source": "Tax Engine"},
+        {"id": "tax_paid", "label": "Taxes already paid", "value": result.total_tax_paid, "source": "Tax Profile + Tax Engine"},
+        {"id": "refund", "label": "Refund", "value": result.refund, "source": "Tax Engine"},
+        {"id": "payable", "label": "Balance payable", "value": result.balance_payable, "source": "Tax Engine"},
+    ]
+    allowed = {item["id"] for item in nodes}
+    if metric not in allowed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported trace metric: {metric}")
+    return {
+        "assessment_year": profile_payload.assessment_year,
+        "regime": regime,
+        "recommended_regime": comparison.recommended_regime,
+        "metric": metric,
+        "nodes": nodes,
+        "slabs": [
+            {
+                "lower_bound": step.lower_bound,
+                "upper_bound": step.upper_bound,
+                "rate": step.rate,
+                "taxable_amount": step.taxable_amount,
+                "tax": step.tax,
+            }
+            for step in result.slab_calculation
+        ],
+    }
+
+
 @router.post("", response_model=ChatMessageResponse)
 def chat_with_taxwise(
     request: ChatMessageRequest,
