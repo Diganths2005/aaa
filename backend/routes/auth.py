@@ -30,6 +30,11 @@ def get_current_user(authorization: str = Header(default=""), db: Session = Depe
     return user
 
 
+@router.get("/me", response_model=UserResponse)
+def me(current_user: User = Depends(get_current_user)) -> User:
+    return current_user
+
+
 @router.post("/signup", response_model=dict)
 def signup(user: UserCreate, db: Session = Depends(get_db)):
     existing_user = db.query(User).filter(User.email == user.email).first()
