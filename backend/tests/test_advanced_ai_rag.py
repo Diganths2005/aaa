@@ -22,6 +22,7 @@ def test_reranker_prefers_query_term_overlap():
 
 
 def test_rule_version_verification_rejects_inactive_or_unproven_notes(tmp_path: Path):
+    (tmp_path / "rule.py").write_text("# rule", encoding="utf-8")
     active = tmp_path / "active.md"
     active.write_text(
         '<!-- {"assessment_year":"2026-27","status":"active","source_files":["rule.py"]} -->\n# Rebate',
