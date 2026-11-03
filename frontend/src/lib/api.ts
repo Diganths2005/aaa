@@ -118,6 +118,7 @@ export const onboardingAPI = {
 
 export const chatAPI = {
   send: (message: string) => apiClient.post(`${API_V1_URL}/chat`, { message }, { timeout: 20000 }),
+  trace: (metric: string) => apiClient.get(`${API_V1_URL}/chat/trace`, { params: { metric } }),
 };
 
 export const taxAPI = {
