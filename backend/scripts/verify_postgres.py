@@ -1,5 +1,10 @@
 import os
+import sys
 import uuid
+
+BACKEND_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if BACKEND_ROOT not in sys.path:
+    sys.path.insert(0, BACKEND_ROOT)
 
 os.environ.setdefault("DATABASE_URL", "postgresql://taxwise_user:taxwise_password@localhost:5432/taxwise_db")
 os.environ.setdefault("SECRET_KEY", "ci-postgres-secret")
@@ -10,6 +15,7 @@ from sqlalchemy import text
 from database import Base, SessionLocal, engine
 from models.tax_profile import TaxProfile
 from models.user import User
+from models.revoked_token import RevokedToken
 from utils.common import generate_id
 
 Base.metadata.create_all(bind=engine)
