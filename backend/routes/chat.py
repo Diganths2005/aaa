@@ -18,8 +18,9 @@ from tax_engine.calculator import calculate_tax, compare_regimes
 from tax_engine.deductions import ALLOWED_NEW, ALLOWED_OLD, calculate_deductions
 from tax_engine.income import taxpayer_age_category
 from tax_engine.models import TaxEngineError
-from services.knowledge import LocalTaxKnowledgeBase, RetrievalFilter
-from services.semantic_rag import SemanticKnowledgeBase, SemanticRAGUnavailable
+from services.knowledge import RetrievalFilter
+from services.rag_pipeline import retrieve_hybrid
+from services.rag_verification import verify_contexts
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -346,23 +347,18 @@ def chat_with_taxwise(
     profile_payload = TaxProfileCreate.model_validate(profile) if profile else None
     assessment_year = profile_payload.assessment_year if profile_payload else "2026-27"
     retrieval_filter = RetrievalFilter(assessment_year=assessment_year, user_id=current_user.id)
-    try:
-        retrieved_context = list(SemanticKnowledgeBase(db=db).retrieve(
-            message,
-            retrieval_filter,
-            limit=5,
-        ))
-    except (SemanticRAGUnavailable, Exception):
-        # Semantic retrieval is an enhancement, not a reason to break the
-        # deterministic tax assistant. Fall back to the local hybrid retriever.
-        try:
-            retrieved_context = list(LocalTaxKnowledgeBase(db=db).retrieve(
-                message,
-                retrieval_filter,
-                limit=5,
-            ))
-        except Exception:
-            retrieved_context = []
+    rag_result = retrieve_hybrid(
+        message,
+        retrieval_filter,
+        db=db,
+        limit=5,
+    )
+    verified_contexts = verify_contexts(
+        rag_result.contexts,
+        assessment_year=assessment_year,
+        knowledge_root=__import__("pathlib").Path(__file__).resolve().parent.parent / "knowledge",
+    )
+    retrieved_context = [item.context for item in verified_contexts if item.verified]
     requires_calculation = _requires_calculation(message)
     if _asks_about_uploaded_documents(message) and not requires_calculation:
         knowledge_context = [
@@ -440,4 +436,19 @@ def chat_with_taxwise(
             # Provider outages must not turn a useful tax answer into an error message.
 
     sources = list(dict.fromkeys(item.source_name for item in knowledge_context))
-    return ChatMessageResponse(answer=answer, sources=sources, mode=response_mode)
+    source_details = [
+        {
+            "source": item.source_name,
+            "assessment_year": item.assessment_year,
+            "page": item.page_number,
+            "retrieval_score": item.metadata.get("similarity"),
+            "source_type": item.metadata.get("source_type", "knowledge"),
+        }
+        for item in knowledge_context
+    ]
+    return ChatMessageResponse(
+        answer=answer,
+        sources=sources,
+        source_details=source_details,
+        mode=response_mode,
+    )
