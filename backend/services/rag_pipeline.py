@@ -36,10 +36,14 @@ def _rerank(query: str, contexts: Sequence[RetrievedContext], limit: int) -> lis
     def score(context: RetrievedContext) -> tuple[float, str]:
         terms = LocalTaxKnowledgeBase._TOKEN_PATTERN.findall(context.text.lower())
         overlap = len(query_terms.intersection(terms))
+        topic_terms = LocalTaxKnowledgeBase._TOKEN_PATTERN.findall(
+            f"{context.metadata.get('topic', '')} {context.source_name}".lower()
+        )
+        topic_overlap = len(query_terms.intersection(topic_terms))
         phrase_bonus = 0.35 if query.lower() in context.text.lower() else 0.0
         metadata_bonus = 0.15 if context.metadata.get("status") == "active" else 0.0
         semantic = float(context.metadata.get("similarity", 0.0) or 0.0)
-        return overlap + phrase_bonus + metadata_bonus + semantic, context.source_name
+        return overlap + 0.15 * topic_overlap + phrase_bonus + metadata_bonus + semantic, context.source_name
 
     return [
         item for item in sorted(contexts, key=score, reverse=True)[:limit]

@@ -21,23 +21,38 @@ def test_reranker_prefers_query_term_overlap():
     assert result[0].source_name == "strong.md"
 
 
+def test_reranker_prefers_topic_specific_source_on_content_tie():
+    broad = RetrievedContext("rebate eligibility", "z.md", "2026-27", {"topic": "old-regime"})
+    specific = RetrievedContext("rebate eligibility", "a.md", "2026-27", {"topic": "rebate"})
+    result = _rerank("rebate", [broad, specific], 1)
+    assert result[0].source_name == "a.md"
+
+
 def test_rule_version_verification_rejects_inactive_or_unproven_notes(tmp_path: Path):
-    (tmp_path / "rule.py").write_text("# rule", encoding="utf-8")
-    active = tmp_path / "active.md"
+    backend_root = tmp_path / "backend"
+    knowledge_root = backend_root / "knowledge"
+    (backend_root / "tax_engine" / "rules" / "ay_2026_27").mkdir(parents=True)
+    (tmp_path / "docs").mkdir()
+    (backend_root / "tax_engine" / "rebates.py").write_text("# rule", encoding="utf-8")
+    (backend_root / "tax_engine" / "rules" / "ay_2026_27" / "rebates.py").write_text("# rule", encoding="utf-8")
+    (tmp_path / "docs" / "TAX_ENGINE.md").write_text("# docs", encoding="utf-8")
+    concepts = knowledge_root / "concepts"
+    concepts.mkdir(parents=True)
+    active = concepts / "rebate.md"
     active.write_text(
-        '<!-- {"assessment_year":"2026-27","status":"active","source_files":["rule.py"]} -->\n# Rebate',
+        '<!-- {"assessment_year":"2026-27","status":"active","source_files":["../tax_engine/rebates.py","../tax_engine/rules/ay_2026_27/rebates.py","../../docs/TAX_ENGINE.md"]} -->\n# Rebate',
         encoding="utf-8",
     )
-    inactive = tmp_path / "inactive.md"
+    inactive = concepts / "inactive.md"
     inactive.write_text(
-        '<!-- {"assessment_year":"2026-27","status":"draft","source_files":["rule.py"]} -->\n# Draft',
+        '<!-- {"assessment_year":"2026-27","status":"draft","source_files":["../tax_engine/rebates.py"]} -->\n# Draft',
         encoding="utf-8",
     )
     contexts = [
-        RetrievedContext("active", "active.md", "2026-27", {"status": "active", "assessment_year": "2026-27", "source_files": ["rule.py"]}),
-        RetrievedContext("draft", "inactive.md", "2026-27", {"status": "draft", "assessment_year": "2026-27", "source_files": ["rule.py"]}),
+        RetrievedContext("active", "concepts/rebate.md", "2026-27", {"status": "active", "assessment_year": "2026-27", "source_files": ["../tax_engine/rebates.py"]}),
+        RetrievedContext("draft", "concepts/inactive.md", "2026-27", {"status": "draft", "assessment_year": "2026-27", "source_files": ["../tax_engine/rebates.py"]}),
     ]
-    verified = verify_contexts(contexts, assessment_year="2026-27", knowledge_root=tmp_path)
+    verified = verify_contexts(contexts, assessment_year="2026-27", knowledge_root=knowledge_root)
     assert verified[0].verified
     assert not verified[1].verified
 
