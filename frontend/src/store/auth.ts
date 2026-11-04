@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import { AuthStore, User } from '@/types';
+import { AuthStore } from '@/types';
 import { authAPI } from '@/lib/api';
 import Cookies from 'js-cookie';
 
@@ -16,29 +16,32 @@ export const useAuthStore = create<AuthStore>((set) => ({
   isLoading: false,
   error: null,
 
-  hydrate: () => {
+  hydrate: async () => {
     const token = Cookies.get('token') || null;
-    set({ token, isAuthenticated: !!token });
+    if (!token) {
+      set({ token: null, user: null, isAuthenticated: false, isLoading: false });
+      return;
+    }
+
+    set({ token, isLoading: true, error: null });
+    try {
+      const response = await authAPI.me();
+      set({ token, user: response.data, isAuthenticated: true, isLoading: false, error: null });
+    } catch {
+      Cookies.remove('token', { path: '/' });
+      set({ token: null, user: null, isAuthenticated: false, isLoading: false, error: null });
+    }
   },
 
   login: async (email: string, password: string) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await authAPI.login(email, password);
+      const response = await authAPI.login(email.trim(), password);
       const { access_token, user } = response.data;
-      
       Cookies.set('token', access_token, tokenCookieOptions);
-      set({
-        token: access_token,
-        user,
-        isAuthenticated: true,
-        isLoading: false,
-      });
+      set({ token: access_token, user, isAuthenticated: true, isLoading: false, error: null });
     } catch (error: any) {
-      set({
-        error: error.response?.data?.detail || 'Login failed',
-        isLoading: false,
-      });
+      set({ error: error.response?.data?.detail || 'Login failed', isLoading: false, isAuthenticated: false });
       throw error;
     }
   },
@@ -46,32 +49,24 @@ export const useAuthStore = create<AuthStore>((set) => ({
   signup: async (email: string, firstName: string, lastName: string, password: string) => {
     set({ isLoading: true, error: null });
     try {
-      const response = await authAPI.signup(email, firstName, lastName, password);
+      const response = await authAPI.signup(email.trim(), firstName.trim(), lastName.trim(), password);
       const { access_token, user } = response.data;
-      
       Cookies.set('token', access_token, tokenCookieOptions);
-      set({
-        token: access_token,
-        user,
-        isAuthenticated: true,
-        isLoading: false,
-      });
+      set({ token: access_token, user, isAuthenticated: true, isLoading: false, error: null });
     } catch (error: any) {
-      set({
-        error: error.response?.data?.detail || 'Signup failed',
-        isLoading: false,
-      });
+      set({ error: error.response?.data?.detail || 'Signup failed', isLoading: false, isAuthenticated: false });
       throw error;
     }
   },
 
-  logout: () => {
-    Cookies.remove('token', { path: '/' });
-    set({
-      user: null,
-      token: null,
-      isAuthenticated: false,
-      error: null,
-    });
+  logout: async () => {
+    try {
+      if (Cookies.get('token')) await authAPI.logout();
+    } catch {
+      // Always clear the local session even if the server is unreachable.
+    } finally {
+      Cookies.remove('token', { path: '/' });
+      set({ user: null, token: null, isAuthenticated: false, isLoading: false, error: null });
+    }
   },
 }));
