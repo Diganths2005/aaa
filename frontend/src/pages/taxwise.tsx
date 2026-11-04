@@ -13,6 +13,14 @@ type Message = {
   mode?: string;
 };
 
+type TaxTrace = {
+  assessment_year: string;
+  regime: string;
+  metric: string;
+  nodes: Array<{ id: string; label: string; value: number; source: string }>;
+  slabs: Array<{ lower_bound: number; upper_bound: number | null; rate: number; taxable_amount: number; tax: number }>;
+};
+
 type TaxProfileSummary = {
   salary_income: Array<{ gross_salary: number; tds?: number }>;
   pension_income: Array<{ amount: number; tds?: number }>;
@@ -46,6 +54,21 @@ const TaxWisePage: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [profile, setProfile] = useState<TaxProfileSummary | null>(null);
   const [profileLoading, setProfileLoading] = useState(true);
+  const [traceMetric, setTraceMetric] = useState('tax_liability');
+  const [trace, setTrace] = useState<TaxTrace | null>(null);
+  const [traceLoading, setTraceLoading] = useState(false);
+
+  const loadTrace = async (metric: string) => {
+    setTraceLoading(true);
+    try {
+      const response = await chatAPI.trace(metric);
+      setTrace(response.data);
+    } catch {
+      setTrace(null);
+    } finally {
+      setTraceLoading(false);
+    }
+  };
 
   useEffect(() => {
     if (!isAuthenticated) {
@@ -125,6 +148,45 @@ const TaxWisePage: React.FC = () => {
             ) : (
               <p className="mt-5 text-sm text-[#64748B]">No saved Tax Profile was found. Create one to get personal calculation answers.</p>
             )}
+
+            <div className="mt-6 rounded-2xl border border-[#A7F3D0] bg-[#ECFDF5] p-4">
+              <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Why this number?</p>
+              <p className="mt-2 text-xs leading-5 text-[#475569]">Inspect the deterministic calculation path behind a tax result.</p>
+              <div className="mt-3 flex gap-2">
+                <select value={traceMetric} onChange={(event) => setTraceMetric(event.target.value)} className="flex-1 rounded-xl border border-border bg-white px-3 py-2 text-sm">
+                  <option value="tax_liability">Final tax liability</option>
+                  <option value="taxable_income">Taxable income</option>
+                  <option value="rebate">Rebate</option>
+                  <option value="cess">Cess</option>
+                  <option value="refund">Refund</option>
+                  <option value="payable">Balance payable</option>
+                </select>
+                <button onClick={() => loadTrace(traceMetric)} disabled={traceLoading} className="rounded-xl bg-[#047857] px-3 py-2 text-sm font-semibold text-white disabled:opacity-60">
+                  {traceLoading ? 'Loading…' : 'Explain'}
+                </button>
+              </div>
+              {trace && (
+                <div className="mt-4 space-y-2">
+                  <p className="text-xs font-semibold text-[#064E3B]">AY {trace.assessment_year} · {trace.regime} regime</p>
+                  {trace.nodes.map((node) => (
+                    <div key={node.id} className="flex items-center justify-between gap-3 rounded-xl border border-[#D1FAE5] bg-white px-3 py-2 text-xs">
+                      <div><p className="font-semibold text-[#0F172A]">{node.label}</p><p className="text-[#64748B]">{node.source}</p></div>
+                      <span className="font-semibold text-[#047857]">{formatMoney(Number(node.value || 0))}</span>
+                    </div>
+                  ))}
+                  {trace.slabs.length > 0 && (
+                    <details className="pt-2">
+                      <summary className="cursor-pointer text-xs font-semibold text-[#047857]">Show slab trace</summary>
+                      <div className="mt-2 space-y-1 text-xs text-[#475569]">
+                        {trace.slabs.map((slab, index) => (
+                          <p key={index}>₹{Number(slab.taxable_amount || 0).toLocaleString('en-IN')} × {(Number(slab.rate || 0) * 100).toFixed(0)}% = {formatMoney(Number(slab.tax || 0))}</p>
+                        ))}
+                      </div>
+                    </details>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="mt-6">
               <p className="text-sm font-semibold uppercase tracking-[0.18em] text-[#047857]">Suggested prompts</p>

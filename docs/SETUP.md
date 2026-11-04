@@ -16,6 +16,11 @@ For scanned-PDF OCR only, install the Tesseract executable separately on the bac
 
 ## Database Setup
 
+The application uses PostgreSQL by default. Local automated tests explicitly
+override `DATABASE_URL` with `sqlite:///./tax-api-test.db`; the API test fixture
+drops and recreates tables in that test database before each test. Never point
+the test suite at a database containing data you need.
+
 ### Option 1: Local PostgreSQL
 1. Install PostgreSQL from https://www.postgresql.org/download/
 2. Create a database and user:
@@ -61,9 +66,14 @@ pip install -r requirements.txt
 
 ### 4. Configure environment
 Copy `.env.example` to `.env` and update values:
-```bash
-cp .env.example .env
+```powershell
+Copy-Item .env.example .env
 ```
+
+Set `DATABASE_URL` to the PostgreSQL connection string for the database created
+above. Configure `SECRET_KEY` with a long, random value and set `ALLOWED_ORIGINS`
+to the exact frontend origins. Optional model-provider keys are only needed for
+hosted explanations. Keep `.env` private; never commit real credentials.
 
 ### 5. Run the server
 ```bash
@@ -73,6 +83,23 @@ python main.py
 The backend will start at `http://localhost:8000`
 
 Test the API: `http://localhost:8000/docs`
+
+### Database schema and migrations
+
+On startup, `Base.metadata.create_all()` creates missing tables, but it does not
+alter existing tables. This repository does not include an automated migration
+runner. Back up an existing database, then apply the numbered SQL migrations in
+order with PostgreSQL's `psql` command. From the repository root in PowerShell:
+
+```powershell
+psql "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file backend/migrations/001_itr_profile_upgrade.sql
+psql "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file backend/migrations/002_document_intelligence.sql
+psql "$env:DATABASE_URL" --set ON_ERROR_STOP=1 --file backend/migrations/003_conversational_onboarding.sql
+```
+
+Migration 001 expects the existing `tax_profiles` table, and migrations 002/003
+expect the existing `users` table. Review each migration and verify the resulting
+schema before deploying.
 
 ## Frontend Setup
 
@@ -159,6 +186,19 @@ pip install fastapi uvicorn sqlalchemy psycopg2-binary python-jose passlib pytho
 ## Current Boundaries
 
 The frontend and backend support profile management, deterministic calculations, chat explanations, document extraction/review, return selection, and ITR-1 preparation. More detail is in [README.md](../README.md) and [ROADMAP.md](ROADMAP.md). Automated tests cover selected behavior but do not establish overall tax accuracy or production readiness.
+
+Tax calculation results are computed from the current profile on request; the
+application does not currently retain a year-by-year calculation history.
+
+## Security and deployment notes
+
+The sample Docker Compose credentials and secrets are for local development only.
+Use unique database credentials and a strong `SECRET_KEY` outside local development,
+restrict `ALLOWED_ORIGINS`, serve the application over HTTPS, and protect the
+database and document storage. The browser currently holds a JavaScript-readable
+JWT cookie, and logout removes it locally rather than revoking a token server-side;
+this is not a production-grade session lifecycle. Uploaded documents are stored
+on the backend filesystem and require an explicit retention and backup policy.
 
 ## Useful Commands
 

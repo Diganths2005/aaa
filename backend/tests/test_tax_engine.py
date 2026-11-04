@@ -51,6 +51,51 @@ def test_new_regime_marginal_relief_above_rebate_threshold():
     assert result.total_tax_liability == Decimal("5200")
 
 
+def test_slab_and_rebate_boundaries_use_exact_decimal_values():
+    new_slab_at_boundary = calculate_tax(
+        profile(salary_income=[{"employer_name": "Acme", "gross_salary": 875000}]),
+        "new",
+    )
+    new_slab_above_boundary = calculate_tax(
+        profile(salary_income=[{"employer_name": "Acme", "gross_salary": 875001}]),
+        "new",
+    )
+    assert new_slab_at_boundary.taxable_income == Decimal("800000")
+    assert new_slab_at_boundary.tax_before_rebate == Decimal("20000")
+    assert new_slab_above_boundary.taxable_income == Decimal("800001")
+    assert sum(
+        (item.tax for item in new_slab_above_boundary.slab_calculation),
+        Decimal("0"),
+    ) == Decimal("20000.10")
+    assert new_slab_above_boundary.tax_before_rebate == Decimal("20000")
+
+    new_rebate_at_boundary = calculate_tax(
+        profile(salary_income=[{"employer_name": "Acme", "gross_salary": 1275000}]),
+        "new",
+    )
+    new_rebate_above_boundary = calculate_tax(
+        profile(salary_income=[{"employer_name": "Acme", "gross_salary": 1275001}]),
+        "new",
+    )
+    assert new_rebate_at_boundary.taxable_income == Decimal("1200000")
+    assert new_rebate_at_boundary.total_tax_liability == Decimal("0")
+    assert new_rebate_above_boundary.taxable_income == Decimal("1200001")
+    assert new_rebate_above_boundary.total_tax_liability == Decimal("1")
+
+    old_rebate_at_boundary = calculate_tax(
+        profile(salary_income=[{"employer_name": "Acme", "gross_salary": 550000}]),
+        "old",
+    )
+    old_rebate_above_boundary = calculate_tax(
+        profile(salary_income=[{"employer_name": "Acme", "gross_salary": 550001}]),
+        "old",
+    )
+    assert old_rebate_at_boundary.taxable_income == Decimal("500000")
+    assert old_rebate_at_boundary.total_tax_liability == Decimal("0")
+    assert old_rebate_above_boundary.taxable_income == Decimal("500001")
+    assert old_rebate_above_boundary.total_tax_liability == Decimal("13000")
+
+
 def test_old_regime_senior_citizen_slab():
     result = calculate_tax(profile(is_senior_citizen=True, salary_income=[{"employer_name": "Acme", "gross_salary": 600000}]), "old")
     assert result.taxable_income == Decimal("550000")

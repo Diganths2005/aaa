@@ -8,7 +8,7 @@ TaxWise is an AI-assisted tax-preparation application for supported Indian indiv
 - Supported salary, pension, house-property, other-income, deduction, tax-payment, and implemented capital-gain calculation scenarios. Business-income calculations are available only through the expanded calculation path and use user-entered net profit.
 - Chat explanations grounded in calculation results and retrieved assessment-year notes. Unsupported tax questions are declined when no matching knowledge is available.
 - PDF and Excel extraction into candidate fields. Candidates require explicit review and confirmation before they update the tax profile. Scanned-PDF OCR is attempted only when the Tesseract executable is installed.
-- General return-family selection with reasons and limitations. ITR-1 preparation and a limited ITR-3 business-income review summary with PDF output are implemented. ITR-2 and ITR-4 preparation, full statutory ITR-3 schedules, and filing are not.
+- General return-family selection with reasons and limitations. ITR-1 preparation, supported ITR-2 capital-gains preparation, validated presumptive ITR-4 preparation, and a limited ITR-3 business-income review summary are implemented. TaxWise does not generate every statutory schedule for every return family and does not file returns.
 
 The application does not submit returns, e-verify, connect to government or bank systems, or guarantee tax outcomes. Review profile data and current rules with a qualified professional before filing.
 
@@ -37,7 +37,7 @@ flowchart TD
     Profile --> Engine
 ```
 
-ITR-2/4 preparation, full statutory ITR-3 schedules, government filing, a runtime admin console for publishing additional shared source documents, and expanded document understanding are future work; they are not shown as active flows. The shared reference corpus is reviewed knowledge checked into `backend/knowledge/`; private taxpayer uploads are never shared.
+Full statutory schedules beyond the implemented preparation summaries, government filing, a runtime admin console for publishing additional shared source documents, and expanded document understanding remain future work. The shared reference corpus is reviewed knowledge checked into `backend/knowledge/`; private taxpayer uploads are never shared.
 
 ## Run Locally
 
@@ -73,7 +73,7 @@ npm run type-check
 npm run build
 ```
 
-Automated tests exercise implemented behavior; they are not evidence of universal or real-world tax accuracy.
+Automated tests exercise implemented behavior. CI runs the full backend suite, frontend type-check/build, and a real PostgreSQL persistence smoke test. Tests are not evidence of universal or real-world tax accuracy.
 
 ## Project Guides
 

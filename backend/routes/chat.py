@@ -19,6 +19,9 @@ from tax_engine.deductions import ALLOWED_NEW, ALLOWED_OLD, calculate_deductions
 from tax_engine.income import taxpayer_age_category
 from tax_engine.models import TaxEngineError
 from services.knowledge import LocalTaxKnowledgeBase, RetrievalFilter
+from services.rag_pipeline import retrieve_hybrid
+from services.rag_verification import verify_contexts
+from services.ai_evaluation import SafetyCase, evaluate_answer
 
 router = APIRouter(prefix="/chat", tags=["chat"])
 
@@ -324,6 +327,56 @@ def _is_safe_provider_answer(text: str, verified_context: dict[str, Any] | None 
     return True
 
 
+@router.get("/trace")
+def tax_trace(
+    metric: str = "tax_liability",
+    current_user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    """Return a deterministic, inspectable trace for a tax result."""
+    profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
+    if not profile:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Tax Profile not found")
+    profile_payload = TaxProfileCreate.model_validate(profile)
+    comparison = compare_regimes(profile_payload)
+    regime = comparison.recommended_regime if comparison.recommended_regime != "equal" else "new"
+    result = comparison.new_regime if regime == "new" else comparison.old_regime
+
+    nodes = [
+        {"id": "gross_total_income", "label": "Gross total income", "value": result.gross_total_income, "source": "Tax Profile + Tax Engine"},
+        {"id": "deductions", "label": "Allowed deductions", "value": result.total_deductions, "source": "Tax Profile + deduction rules"},
+        {"id": "taxable_income", "label": "Taxable income", "value": result.taxable_income, "source": "Tax Engine"},
+        {"id": "tax_before_rebate", "label": "Tax before rebate", "value": result.tax_before_rebate, "source": "Tax Engine"},
+        {"id": "rebate", "label": "Rebate", "value": result.rebate, "source": "Assessment-year rules"},
+        {"id": "surcharge", "label": "Surcharge", "value": result.surcharge, "source": "Assessment-year rules"},
+        {"id": "cess", "label": "Health and education cess", "value": result.cess, "source": "Assessment-year rules"},
+        {"id": "tax_liability", "label": "Final tax liability", "value": result.total_tax_liability, "source": "Tax Engine"},
+        {"id": "tax_paid", "label": "Taxes already paid", "value": result.total_tax_paid, "source": "Tax Profile + Tax Engine"},
+        {"id": "refund", "label": "Refund", "value": result.refund, "source": "Tax Engine"},
+        {"id": "payable", "label": "Balance payable", "value": result.balance_payable, "source": "Tax Engine"},
+    ]
+    allowed = {item["id"] for item in nodes}
+    if metric not in allowed:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=f"Unsupported trace metric: {metric}")
+    return {
+        "assessment_year": profile_payload.assessment_year,
+        "regime": regime,
+        "recommended_regime": comparison.recommended_regime,
+        "metric": metric,
+        "nodes": nodes,
+        "slabs": [
+            {
+                "lower_bound": step.lower_bound,
+                "upper_bound": step.upper_bound,
+                "rate": step.rate,
+                "taxable_amount": step.taxable_amount,
+                "tax": step.tax,
+            }
+            for step in result.slab_calculation
+        ],
+    }
+
+
 @router.post("", response_model=ChatMessageResponse)
 def chat_with_taxwise(
     request: ChatMessageRequest,
@@ -344,14 +397,19 @@ def chat_with_taxwise(
     profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
     profile_payload = TaxProfileCreate.model_validate(profile) if profile else None
     assessment_year = profile_payload.assessment_year if profile_payload else "2026-27"
-    try:
-        retrieved_context = list(LocalTaxKnowledgeBase(db=db).retrieve(
-            message,
-            RetrievalFilter(assessment_year=assessment_year, user_id=current_user.id),
-            limit=5,
-        ))
-    except Exception:
-        retrieved_context = []
+    retrieval_filter = RetrievalFilter(assessment_year=assessment_year, user_id=current_user.id)
+    rag_result = retrieve_hybrid(
+        message,
+        retrieval_filter,
+        db=db,
+        limit=5,
+    )
+    verified_contexts = verify_contexts(
+        rag_result.contexts,
+        assessment_year=assessment_year,
+        knowledge_root=__import__("pathlib").Path(__file__).resolve().parent.parent / "knowledge",
+    )
+    retrieved_context = [item.context for item in verified_contexts if item.verified]
     requires_calculation = _requires_calculation(message)
     if _asks_about_uploaded_documents(message) and not requires_calculation:
         knowledge_context = [
@@ -415,7 +473,11 @@ def chat_with_taxwise(
                         temperature=0.2,
                     )
                     provider_answer = completion.choices[0].message.content if completion.choices else None
-                    if provider_answer and _is_safe_provider_answer(provider_answer, structured_context):
+                    safety_result = evaluate_answer(
+                        SafetyCase(message, provider_answer or "", structured_context, requires_sources=True),
+                        [item.source_name for item in knowledge_context],
+                    )
+                    if provider_answer and _is_safe_provider_answer(provider_answer, structured_context) and safety_result.passed:
                         break
                 except Exception as exc:
                     print(f"GitHub Models attempt failed: {type(exc).__name__}")
@@ -429,4 +491,19 @@ def chat_with_taxwise(
             # Provider outages must not turn a useful tax answer into an error message.
 
     sources = list(dict.fromkeys(item.source_name for item in knowledge_context))
-    return ChatMessageResponse(answer=answer, sources=sources, mode=response_mode)
+    source_details = [
+        {
+            "source": item.source_name,
+            "assessment_year": item.assessment_year,
+            "page": item.page_number,
+            "retrieval_score": item.metadata.get("similarity"),
+            "source_type": item.metadata.get("source_type", "knowledge"),
+        }
+        for item in knowledge_context
+    ]
+    return ChatMessageResponse(
+        answer=answer,
+        sources=sources,
+        source_details=source_details,
+        mode=response_mode,
+    )

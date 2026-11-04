@@ -2,6 +2,11 @@
 
 The Python tax engine is the source of truth for numerical tax calculations. It uses `Decimal`, assessment-year rule modules, validated profile inputs, and centralized rupee rounding. The active rules cover AY 2026-27 (FY 2025-26). The engine does not file returns or rely on an AI model for calculations.
 
+Profile monetary inputs are validated as finite decimal values with at most 18
+digits and two fractional digits. Invalid or out-of-range values are rejected
+before calculation. When supplied, date of birth must be a valid ISO
+`YYYY-MM-DD` date no later than 31 March 2026.
+
 ## Calculation Flow
 
 ```text

@@ -13,8 +13,13 @@ function App({ Component, pageProps }: AppProps) {
   const isPublicRoute = ['/', '/login', '/signup', '/404'].includes(router.pathname);
 
   useEffect(() => {
-    hydrate();
-    setAuthReady(true);
+    let active = true;
+    hydrate().finally(() => {
+      if (active) setAuthReady(true);
+    });
+    return () => {
+      active = false;
+    };
   }, [hydrate]);
 
   if (!isPublicRoute && !authReady) return null;

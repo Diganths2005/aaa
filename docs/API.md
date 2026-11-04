@@ -84,4 +84,4 @@ Selection may identify ITR-2, ITR-3, or ITR-4. ITR-1 preparation and a constrain
 - `413` indicates a document exceeds 10 MB; `415` indicates an unsupported file type.
 - `422` indicates request validation, extraction, unsupported return preparation, or tax-engine failure.
 
-Profile responses mask PAN and bank-account numbers. Document bytes currently use local temporary storage; production deployment requires a protected persistent storage design and retention policy.
+Profile responses mask PAN and bank-account numbers. JWTs carry unique identifiers and logout persists revocation records. Document bytes use configured persistent local storage; production deployment still requires protected storage, retention, encryption, rate limiting, and audit controls.

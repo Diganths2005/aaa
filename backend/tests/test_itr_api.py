@@ -79,7 +79,7 @@ def test_itr_api_end_to_end():
         ),
     ],
 )
-def test_itr2_selection_does_not_prepare_unsupported_return(itr_form, profile_fields):
+def test_itr2_selection_prepares_supported_capital_gains_return(itr_form, profile_fields):
     email = f"{itr_form.lower()}-{uuid.uuid4()}@example.com"
     signup = client.post("/api/v1/auth/signup", json={"email": email, "first_name": "Demo", "last_name": "Taxpayer", "password": "password123"})
     headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
@@ -93,14 +93,14 @@ def test_itr2_selection_does_not_prepare_unsupported_return(itr_form, profile_fi
 
     selection = client.get("/api/itr/selection", headers=headers)
     assert selection.json()["recommended_itr"] == itr_form
-    assert selection.json()["preparation_supported"] is False
+    assert selection.json()["preparation_supported"] is True
     preparation = client.post("/api/itr/prepare", headers=headers, json={"regime": "new", "itr_form": itr_form})
-    assert preparation.status_code == 422
-    assert "outside the supported preparation scope" in preparation.json()["detail"]
-    assert "No preparation summary was generated" in preparation.json()["detail"]
-
+    assert preparation.status_code == 200
+    assert preparation.json()["itr_form"] == "ITR-2"
+    assert preparation.json()["schedules"]["capital_gains"]
     pdf = client.post("/api/itr/pdf", headers=headers, json={"regime": "new", "itr_form": itr_form})
-    assert pdf.status_code == 422
+    assert pdf.status_code == 200
+    assert pdf.content.startswith(b"%PDF")
 
 
 def test_itr3_api_prepares_business_income_review_summary_and_pdf():
@@ -143,3 +143,30 @@ def test_itr3_api_prepares_business_income_review_summary_and_pdf():
     assert pdf.headers["content-type"] == "application/pdf"
     assert pdf.content.startswith(b"%PDF")
     assert b"Consulting" in pdf.content
+
+def test_itr4_api_prepares_presumptive_income():
+    email = f"itr4-{uuid.uuid4()}@example.com"
+    signup = client.post("/api/v1/auth/signup", json={"email": email, "first_name": "Demo", "last_name": "Presumptive", "password": "password123"})
+    headers = {"Authorization": f"Bearer {signup.json()['access_token']}"}
+    response = client.post("/api/v1/tax-profiles", headers=headers, json={
+        "pan_number": unique_pan(),
+        "date_of_birth": "1990-01-15",
+        "residential_status": "resident",
+        "employment_type": "self_employed",
+        "has_business_income": True,
+        "business_income": [{
+            "business_name": "Consulting",
+            "nature_of_business": "Technical consultancy",
+            "gross_receipts": 500000,
+            "net_profit_or_loss": 300000,
+            "presumptive_section": "44ADA",
+        }],
+    })
+    assert response.status_code == 200
+    selection = client.get("/api/itr/selection", headers=headers)
+    assert selection.json()["recommended_itr"] == "ITR-4"
+    assert selection.json()["preparation_supported"] is True
+    preparation = client.post("/api/itr/prepare", headers=headers, json={"regime": "new", "itr_form": "ITR-4"})
+    assert preparation.status_code == 200
+    assert preparation.json()["income"]["business"] == 300000
+    assert preparation.json()["support_status"]["itr4_presumptive_schedule"].startswith("Supported")
