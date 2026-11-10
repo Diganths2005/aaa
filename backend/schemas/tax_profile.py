@@ -64,6 +64,8 @@ class BusinessIncome(BaseModel):
     gross_receipts: Money = Field(ge=0)
     net_profit_or_loss: Money
     presumptive_section: Optional[Literal["44AD", "44ADA", "44AE"]] = None
+    cash_receipts_within_5pct: Optional[bool] = None
+    goods_carriages_owned: Optional[int] = Field(default=None, ge=0, le=100)
 
 class ForeignIncomeAsset(BaseModel):
     country: str = Field(min_length=2, max_length=100)
@@ -78,6 +80,21 @@ class Investment(BaseModel):
 class Deduction(BaseModel):
     section: str = Field(min_length=2, max_length=20)
     amount: Money = Field(ge=0)
+    policy_or_document_id: Optional[str] = Field(default=None, max_length=100)
+    pran: Optional[str] = Field(default=None, max_length=50)
+    insurer_name: Optional[str] = Field(default=None, max_length=200)
+    insurance_policy_number: Optional[str] = Field(default=None, max_length=100)
+    loan_institution: Optional[str] = Field(default=None, max_length=200)
+    loan_account_number: Optional[str] = Field(default=None, max_length=100)
+    loan_sanction_date: Optional[str] = None
+    form_10ba_acknowledgement: Optional[str] = Field(default=None, max_length=100)
+    donee_name: Optional[str] = Field(default=None, max_length=200)
+    donee_pan: Optional[str] = Field(default=None, max_length=10)
+    donation_amount: Money = Field(default=Decimal("0"), ge=0)
+    donation_transaction_reference: Optional[str] = Field(default=None, max_length=100)
+    donation_ifsc: Optional[str] = None
+    disability_type: Optional[str] = Field(default=None, max_length=100)
+    form_10ia_acknowledgement: Optional[str] = Field(default=None, max_length=100)
     self_health_insurance: Money = Field(default=Decimal("0"), ge=0)
     family_health_insurance: Money = Field(default=Decimal("0"), ge=0)
     parents_health_insurance: Money = Field(default=Decimal("0"), ge=0)
@@ -167,6 +184,10 @@ class TaxProfileCreate(BaseModel):
     has_business_income: bool = False
     has_speculative_income: bool = False
     has_carry_forward_loss: bool = False
+    has_esop_deferral: bool = False
+    has_lottery_or_gaming_income: bool = False
+    agricultural_income: Money = Field(default=Decimal("0"), ge=0)
+    tds_194n: bool = False
     salary_income: List[SalaryIncome] = Field(default_factory=list)
     pension_income: List[PensionIncome] = Field(default_factory=list)
     house_properties: List[HouseProperty] = Field(default_factory=list)
