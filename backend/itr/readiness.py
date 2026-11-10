@@ -146,16 +146,39 @@ def build_return_readiness(profile: TaxProfileCreate) -> dict[str, Any]:
     for index, deduction in enumerate(profile.deductions, 1):
         complete = bool(deduction.section) and deduction.amount >= 0
         reason = ""
-        # The current TaxWise schema does not yet store several schedule-level
-        # identifiers that AY 2026-27 asks for (e.g. 80G transaction reference
-        # and IFSC, 80C document/policy number, 80CCD PRAN). Surface that gap
-        # instead of silently calling the deduction complete.
-        if deduction.section in {"80G", "80GGC"}:
-            complete = False
-            reason = "Schedule-level donation identifier fields are not yet stored in the TaxWise profile."
-        elif deduction.section in {"80C", "80CCD(1)", "80CCD(1B)", "80D"}:
-            complete = False
-            reason = "AY 2026-27 requires supporting identifier/insurer details that are not yet represented in the current TaxWise profile schema."
+        if deduction.section == "80C":
+            complete = complete and bool(deduction.policy_or_document_id)
+            if not deduction.policy_or_document_id:
+                reason = "80C requires the policy number or document identification number."
+        elif deduction.section in {"80CCD(1)", "80CCD(1B)"}:
+            complete = complete and bool(deduction.pran)
+            if not deduction.pran:
+                reason = f"{deduction.section} requires the taxpayer's PRAN."
+        elif deduction.section == "80D":
+            complete = complete and bool(deduction.insurer_name) and bool(deduction.insurance_policy_number)
+            if not complete:
+                reason = "80D requires insurer name and policy number."
+        elif deduction.section in {"80E", "80EE", "80EEA", "80EEB"}:
+            complete = complete and bool(deduction.loan_institution) and bool(deduction.loan_account_number) and bool(deduction.loan_sanction_date)
+            if not complete:
+                reason = f"{deduction.section} requires loan institution/account and sanction details."
+        elif deduction.section == "80GG":
+            complete = complete and bool(deduction.form_10ba_acknowledgement)
+            if not deduction.form_10ba_acknowledgement:
+                reason = "80GG requires the Form 10BA acknowledgement number."
+        elif deduction.section == "80G":
+            if deduction.donation_amount > 0:
+                complete = complete and bool(deduction.donee_pan) and bool(deduction.donation_transaction_reference) and bool(deduction.donation_ifsc)
+                if not complete:
+                    reason = "80G requires donee PAN plus transaction reference and IFSC for the AY 2026-27 Schedule 80G workflow."
+        elif deduction.section == "80GGC":
+            complete = complete and bool(deduction.donee_name) and bool(deduction.donee_pan)
+            if not complete:
+                reason = "80GGC requires political party name and PAN."
+        elif deduction.section in {"80DD", "80U"}:
+            complete = complete and bool(deduction.disability_type) and bool(deduction.form_10ia_acknowledgement)
+            if not complete:
+                reason = f"{deduction.section} requires disability details and Form 10-IA acknowledgement information."
         items.append(_item(f"deduction.{index}", "Deductions", f"Deduction #{index} ({deduction.section})", True, complete, reason))
 
     if profile.taxes_paid:
