@@ -35,7 +35,7 @@ def _date(value: str) -> str:
 
 
 def _transaction_blocks(text: str) -> list[tuple[str, int]]:
-    pattern = r"(?:Transaction\\s+(?:No\\.?\\s*)?(\\d+)|Capital\\s+Gain(?:s)?\\s*[-:]\\s*([^\\n]+))"
+    pattern = r"(?:Transaction\s+(?:No\.?\s*)?(\d+)|Capital\s+Gain(?:s)?\s*[-:]\s*([^\n]+))"
     matches = list(re.finditer(pattern, text, re.IGNORECASE))
     blocks: list[tuple[str, int]] = []
     for index, match in enumerate(matches):
@@ -49,17 +49,15 @@ def extract_itr2_candidates(pages: list[str], source: str = "ITR2_DOCUMENT") -> 
     text = "\f".join(pages)
     out: list[ExtractedCandidate] = []
 
-    # Facts that are frequently needed by ITR-2 but are not reliably captured by
-    # the generic label extractor.
     text_fields = {
-        "residential_status": (r"Residential\\s+Status\\s*[:|]\\s*([^\\n|]+)",),
-        "citizenship": (r"Citizenship\\s*[:|]\\s*([^\\n|]+)",),
-        "nationality": (r"Nationality\\s*[:|]\\s*([^\\n|]+)",),
-        "account_type": (r"Account\\s+Type\\s*[:|]\\s*([^\\n|]+)",),
-        "refund_account": (r"(?:Primary|Refund)\\s*/?\\s*Account\\s*[:|]\\s*(Yes|No)",),
-        "foreign_country": (r"(?:Foreign\\s+)?Country\\s*[:|]\\s*([^\\n|]+)",),
-        "foreign_asset_type": (r"(?:Foreign\\s+)?Asset\\s+Type\\s*[:|]\\s*([^\\n|]+)",),
-        "donation_reference": (r"(?:Donation\\s+)?(?:Transaction\\s+)?Reference\\s*[:|]\\s*([^\\n|]+)",),
+        "residential_status": (r"Residential\s+Status\s*[:|]\s*([^\n|]+)",),
+        "citizenship": (r"Citizenship\s*[:|]\s*([^\n|]+)",),
+        "nationality": (r"Nationality\s*[:|]\s*([^\n|]+)",),
+        "account_type": (r"Account\s+Type\s*[:|]\s*([^\n|]+)",),
+        "refund_account": (r"(?:Primary|Refund)\s*/?\s*Account\s*[:|]\s*(Yes|No)",),
+        "foreign_country": (r"(?:Foreign\s+)?Country\s*[:|]\s*([^\n|]+)",),
+        "foreign_asset_type": (r"(?:Foreign\s+)?Asset\s+Type\s*[:|]\s*([^\n|]+)",),
+        "donation_reference": (r"(?:Donation\s+)?(?:Transaction\s+)?Reference\s*[:|]\s*([^\n|]+)",),
     }
     for field, patterns in text_fields.items():
         match, page = _first(patterns, text)
@@ -67,9 +65,9 @@ def extract_itr2_candidates(pages: list[str], source: str = "ITR2_DOCUMENT") -> 
             out.append(ExtractedCandidate(field, match.group(1).strip(), source, "high", page))
 
     money_fields = {
-        "foreign_maximum_balance": (r"Maximum\\s+Balance\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)",),
-        "foreign_income": (r"Foreign\\s+Income(?:\\s+Earned)?\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)",),
-        "donation_amount": (r"Donation(?:\\s+Amount)?\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)",),
+        "foreign_maximum_balance": (r"Maximum\s+Balance\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)",),
+        "foreign_income": (r"Foreign\s+Income(?:\s+Earned)?\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)",),
+        "donation_amount": (r"Donation(?:\s+Amount)?\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)",),
     }
     for field, patterns in money_fields.items():
         match, page = _first(patterns, text)
@@ -80,16 +78,14 @@ def extract_itr2_candidates(pages: list[str], source: str = "ITR2_DOCUMENT") -> 
                 continue
             out.append(ExtractedCandidate(field, value, source, "high", page))
 
-    # Preserve every capital-gain transaction as its own object. Never collapse
-    # multiple transactions into a single capital_gains amount.
     for index, (block, page) in enumerate(_transaction_blocks(text), start=1):
         def value(patterns):
             match, _ = _first(patterns, block)
             return match.group(1).strip() if match else None
 
-        asset = value((r"(?:Asset|Security|Property)\\s*[:|]\\s*([^\\n|]+)",))
-        purchase = value((r"(?:Purchase|Acquisition)\\s+Date\\s*[:|]\\s*(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2})",))
-        sale_date = value((r"Sale\\s+Date\\s*[:|]\\s*(\\d{1,2}[-/]\\d{1,2}[-/]\\d{4}|\\d{4}[-/]\\d{1,2}[-/]\\d{1,2})",))
+        asset = value((r"(?:Asset|Security|Property)\s*[:|]\s*([^\n|]+)",))
+        purchase = value((r"(?:Purchase|Acquisition)\s+Date\s*[:|]\s*(\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})",))
+        sale_date = value((r"Sale\s+Date\s*[:|]\s*(\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})",))
 
         def money(patterns):
             raw = value(patterns)
@@ -105,13 +101,13 @@ def extract_itr2_candidates(pages: list[str], source: str = "ITR2_DOCUMENT") -> 
             "asset_type": asset,
             "acquisition_date": _date(purchase) if purchase else None,
             "sale_date": _date(sale_date) if sale_date else None,
-            "sale_consideration": money((r"Sale\\s+Consideration\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)", r"Sale\\s+Value\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)")),
-            "acquisition_cost": money((r"(?:Acquisition|Purchase)\\s+Cost\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)", r"Cost\\s+of\\s+Acquisition\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)")),
-            "improvement_cost": money((r"Improvement\\s+Cost\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)",)),
-            "transfer_expenses": money((r"Transfer\\s+Expenses?\\s*[:|]\\s*[^\\d\\n]*([\\d,.]+(?:\\s*(?:lakh|lakhs|lac|l))?)",)),
-            "stt_paid": value((r"STT(?:\\s+Paid(?:\\s+on\\s+Transfer)?)?\\s*[:|]\\s*(Yes|No)",)),
+            "sale_consideration": money((r"Sale\s+Consideration\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)", r"Sale\s+Value\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)")),
+            "acquisition_cost": money((r"(?:Acquisition|Purchase)\s+Cost\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)", r"Cost\s+of\s+Acquisition\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)")),
+            "improvement_cost": money((r"Improvement\s+Cost\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)",)),
+            "transfer_expenses": money((r"Transfer\s+Expenses?\s*[:|]\s*[^\d\n]*([\d,.]+(?:\s*(?:lakh|lakhs|lac|l))?)",)),
+            "stt_paid": value((r"STT(?:\s+Paid(?:\s+on\s+Transfer)?)?\s*[:|]\s*(Yes|No)",)),
         }
-        if any(item is not None for key, item in transaction.items() if key not in {"transaction_number"}):
+        if any(item is not None for key, item in transaction.items() if key != "transaction_number"):
             out.append(ExtractedCandidate(f"capital_gain_transaction_{index}", transaction, source, "high", page))
 
     return out
