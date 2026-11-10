@@ -35,7 +35,7 @@ export interface Deduction {
   education_loan_interest?: Money; education_loan_eligible?: boolean; disability_percentage?: number; is_dependent?: boolean;
   medical_expenditure?: Money; loan_sanction_date?: string; first_home_owner?: boolean; property_stamp_duty_value?: Money; loan_amount?: Money;
   dependent_relationship?: 'spouse' | 'child' | 'parent' | 'sibling'; dependent_age_category?: 'individual' | 'senior' | 'super_senior'; disability_certificate_available?: boolean;
-  donation_mode?: 'cash' | 'non_cash'; donation_eligible?: boolean; form_10ba_acknowledgement?: string; owns_residential_property_at_residence_or_work?: boolean;
+  donation_mode?: 'cash' | 'non_cash'; donation_eligible?: boolean; donation_reference?: string; donation_ifsc_code?: string; form_10ba_acknowledgement?: string; owns_residential_property_at_residence_or_work?: boolean;
   loan_from_financial_institution?: boolean; section_24b_limit_exhausted?: boolean;
 }
 export interface TaxPayment { tax_type: 'tds' | 'advance_tax' | 'self_assessment'; amount: Money; reference?: string; }
