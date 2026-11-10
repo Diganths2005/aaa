@@ -87,6 +87,16 @@ def extract_itr2_candidates(pages: list[str], source: str = "ITR2_DOCUMENT") -> 
             return match.group(1).strip() if match else None
 
         asset = value((r"(?:Asset|Security|Property)\s*[:|]\s*([^\n|]+)",))
+        if asset:
+            normalized = asset.lower()
+            if "property" in normalized or "land" in normalized or "building" in normalized:
+                asset = "immovable_property"
+            elif "mutual fund" in normalized and "equity" in normalized:
+                asset = "equity_oriented_mutual_fund"
+            elif "equity" in normalized or "share" in normalized:
+                asset = "listed_equity_share"
+            else:
+                asset = "other_security"
         purchase = value((r"(?:Purchase|Acquisition)\s+Date\s*[:|]\s*(\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})",))
         sale_date = value((r"Sale\s+Date\s*[:|]\s*(\d{1,2}[-/]\d{1,2}[-/]\d{4}|\d{4}[-/]\d{1,2}[-/]\d{1,2})",))
 
