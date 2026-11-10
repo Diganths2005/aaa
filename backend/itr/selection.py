@@ -45,7 +45,7 @@ def _capital_gains_status(profile: TaxProfileCreate) -> tuple[bool, str, list[st
     return False, summary.itr1_capital_gain_reason, []
 
 
-def _taxable_total_income(profile: TaxProfileCreate) -> tuple[Optional[float], list[str]]:
+def _taxable_total_income(profile: TaxProfileCreate, *, allow_business: bool = False) -> tuple[Optional[float], list[str]]:
     """Use the deterministic engine for the actual total-income ceiling.
 
     Form selection should not invent a gross-income proxy: the AY 2026-27
@@ -53,7 +53,7 @@ def _taxable_total_income(profile: TaxProfileCreate) -> tuple[Optional[float], l
     it because facts are incomplete, return that as missing information.
     """
     try:
-        result = calculate_tax(profile, "new")
+        result = calculate_tax(profile, "new", allow_expanded_income=allow_business)
         return float(result.taxable_income), []
     except TaxEngineError as exc:
         if exc.code in {"INSUFFICIENT_CAPITAL_GAIN_DATA", "UNSUPPORTED_CAPITAL_GAINS"}:
@@ -136,8 +136,6 @@ def select_itr(profile: TaxProfileCreate) -> ITRSelection:
     has_business = bool(profile.business_income or profile.has_business_income)
     has_capital_gains = bool(profile.capital_gains)
     has_foreign = bool(profile.foreign_income_assets or profile.has_foreign_assets or profile.has_foreign_income)
-    business_loss_continuity = profile.has_carry_forward_loss and has_business
-
     # Business/professional income is decided before ITR-1/2. This mirrors the
     # strong part of itr-agent: ITR-2 cannot carry Schedule BP, while ITR-4 is
     # only an optional simplified form for eligible presumptive cases.
@@ -151,7 +149,9 @@ def select_itr(profile: TaxProfileCreate) -> ITRSelection:
         mixed_business = any(item.presumptive_section is None for item in profile.business_income)
 
         capital_ok, _, capital_missing = _capital_gains_status(profile)
-        total_income, total_income_errors = _taxable_total_income(profile)
+        total_income, total_income_errors = _taxable_total_income(profile, allow_business=True)
+        if capital_missing:
+            missing.extend(capital_missing)
         if total_income_errors:
             missing.extend(total_income_errors)
 
