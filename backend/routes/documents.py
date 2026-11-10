@@ -324,7 +324,13 @@ def _onboarding_values(candidates: list[dict]) -> dict:
         ("deduction_80DD", "80DD"), ("deduction_80DDB", "80DDB"),
     ):
         if candidate_values.get(field) is not None:
-            deductions.append({"section": section, "amount": candidate_values[field]})
+            deduction = {"section": section, "amount": candidate_values[field]}
+            if section == "80G":
+                deduction["donation_reference"] = candidate_values.get("donation_reference")
+                deduction["donation_ifsc_code"] = candidate_values.get("donation_ifsc_code")
+                deduction["donation_mode"] = "non_cash"
+                deduction["donation_eligible"] = True
+            deductions.append(deduction)
     if deductions:
         values["deductions"] = deductions
 
