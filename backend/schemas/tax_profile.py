@@ -80,6 +80,21 @@ class Investment(BaseModel):
 class Deduction(BaseModel):
     section: str = Field(min_length=2, max_length=20)
     amount: Money = Field(ge=0)
+    policy_or_document_id: Optional[str] = Field(default=None, max_length=100)
+    pran: Optional[str] = Field(default=None, max_length=50)
+    insurer_name: Optional[str] = Field(default=None, max_length=200)
+    insurance_policy_number: Optional[str] = Field(default=None, max_length=100)
+    loan_institution: Optional[str] = Field(default=None, max_length=200)
+    loan_account_number: Optional[str] = Field(default=None, max_length=100)
+    loan_sanction_date: Optional[str] = None
+    form_10ba_acknowledgement: Optional[str] = Field(default=None, max_length=100)
+    donee_name: Optional[str] = Field(default=None, max_length=200)
+    donee_pan: Optional[str] = Field(default=None, max_length=10)
+    donation_amount: Money = Field(default=Decimal("0"), ge=0)
+    donation_transaction_reference: Optional[str] = Field(default=None, max_length=100)
+    donation_ifsc: Optional[str] = None
+    disability_type: Optional[str] = Field(default=None, max_length=100)
+    form_10ia_acknowledgement: Optional[str] = Field(default=None, max_length=100)
     self_health_insurance: Money = Field(default=Decimal("0"), ge=0)
     family_health_insurance: Money = Field(default=Decimal("0"), ge=0)
     parents_health_insurance: Money = Field(default=Decimal("0"), ge=0)
