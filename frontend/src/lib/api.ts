@@ -140,6 +140,10 @@ export const deductionsAPI = {
   summary: (regime: 'old' | 'new' = 'old') => apiClient.get(`${API_V1_URL}/deductions/summary`, { params: { regime } }),
 };
 
+export const readinessAPI = {
+  itr2: () => apiClient.get(`${API_V1_URL}/readiness/itr-2`),
+};
+
 export const itrAPI = {
   eligibility: () => apiClient.post(`${API_URL}/api/itr/eligibility`),
   selection: () => apiClient.get(`${API_URL}/api/itr/selection`),

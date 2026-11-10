@@ -1,301 +1,199 @@
-import React, { useEffect, useRef, useState } from 'react';
-import { useRouter } from 'next/router';
-import { useAuthStore } from '@/store/auth';
-import { documentsAPI, onboardingAPI, taxProfileAPI } from '@/lib/api';
-import { TaxProfile } from '@/types';
+import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
+import { documentsAPI, readinessAPI, taxProfileAPI } from '@/lib/api';
 import ReturnToDashboard from '@/components/ReturnToDashboard';
-import { getProfileCompletion } from '@/lib/profile-completion';
+import { useAuthStore } from '@/store/auth';
 
-const inputClass = 'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm transition focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20';
-const apiErrorMessage = (error: any, fallback: string) => {
-  const detail = error?.response?.data?.detail;
-  if (typeof detail === 'string') return detail;
-  if (Array.isArray(detail)) {
-    return detail.map((item) => {
-      const location = Array.isArray(item?.loc) ? item.loc.filter(Boolean).join('.') : '';
-      return location ? `${location}: ${item.msg || 'Invalid value'}` : item.msg || 'Invalid value';
-    }).join(' ');
-  }
-  return fallback;
-};
-const blankProfile: TaxProfile = {
-  residential_status: '', employment_type: '', financial_year: '2025-26', assessment_year: '2026-27',
-  salary_income: [], pension_income: [], house_properties: [], other_income: [], capital_gains: [], business_income: [],
-  foreign_income_assets: [], investments: [], deductions: [], taxes_paid: [], bank_accounts: [], documents: [],
+type ReadinessItem = {
+  key: string;
+  label: string;
+  section: string;
+  required: boolean;
+  status: 'complete' | 'missing' | 'needs_confirmation';
+  value?: unknown;
+  source?: string | null;
+  page?: number | null;
+  confidence?: string | null;
 };
 
-const TaxProfilePage: React.FC = () => {
-  const router = useRouter();
-  const { isAuthenticated } = useAuthStore();
-  const [step, setStep] = useState(1);
-  const [formData, setFormData] = useState<TaxProfile>(blankProfile);
-  const [files, setFiles] = useState<Array<{ id: string; name: string }>>([]);
+type Readiness = {
+  itr: string;
+  ready: boolean;
+  completion_percentage: number;
+  total_required: number;
+  complete_required: number;
+  missing: ReadinessItem[];
+  needs_confirmation: ReadinessItem[];
+  sections: Array<{ name: string; total: number; complete: number; missing: number; review: number }>;
+};
+
+const TaxProfilePage = () => {
+  const { isAuthenticated, hydrate } = useAuthStore();
+  const [readiness, setReadiness] = useState<Readiness | null>(null);
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [uploading, setUploading] = useState(false);
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [assistantInput, setAssistantInput] = useState('');
-  const [assistantMessages, setAssistantMessages] = useState<string[]>([]);
-  const [proposal, setProposal] = useState<{ salary?: number; tds?: number } | null>(null);
-  const [documentProcessing, setDocumentProcessing] = useState(false);
-  const [progress, setProgress] = useState({ completed: 0, total: 16, percent: 0 });
-  const hydrated = useRef(false);
-  const assistantFileInput = useRef<HTMLInputElement>(null);
 
-  useEffect(() => { if (!isAuthenticated) router.push('/login'); }, [isAuthenticated, router]);
   useEffect(() => {
-    if (!router.isReady || typeof router.query.section !== 'string') return;
-    const sectionStep: Record<string, number> = {
-      personal: 1,
-      employment: 2,
-      'salary-pension': 3,
-      'house-property': 3,
-      'other-income': 3,
-      'capital-gains': 3,
-      deductions: 4,
-      tds: 5,
-      'advance-tax': 5,
-      'self-assessment-tax': 5,
-      'bank-accounts': 5,
-      'tax-documents': 6,
-      'ais-26as': 6,
-      'itr-information': 2,
-    };
-    setStep(sectionStep[router.query.section] || 1);
-  }, [router.isReady, router.query.section]);
-  useEffect(() => {
+    hydrate();
+  }, [hydrate]);
+
+  const load = useCallback(async () => {
     if (!isAuthenticated) return;
-    onboardingAPI.getSession().then((response) => {
-      setAssistantMessages([response.data.assistant_message]);
-      setProgress(response.data.progress);
-      if (response.data.profile) {
-        setFormData({ ...blankProfile, ...response.data.profile });
-        hydrated.current = true;
-      }
-    }).catch(() => setAssistantMessages(['Hi! I\'ll help you complete your Tax Profile.']))
-      .finally(() => { hydrated.current = true; });
-    taxProfileAPI.getCurrentUser().then((response) => {
-      setFormData({ ...blankProfile, ...response.data });
-      const status = getProfileCompletion(response.data);
-      setProgress({ completed: Math.round(status.percent / 10), total: 10, percent: status.percent });
-      hydrated.current = true;
-    }).catch(() => { hydrated.current = true; });
-  }, [isAuthenticated]);
-  if (!isAuthenticated) return null;
-
-  const update = (event: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value, type } = event.target;
-    const decisionFlags = ['is_senior_citizen', 'is_director', 'has_unlisted_equity', 'has_foreign_assets', 'has_foreign_income', 'has_business_income', 'has_speculative_income', 'has_carry_forward_loss'];
-    setFormData((current) => ({
-      ...current,
-      [name]: type === 'checkbox'
-        ? (event.target as HTMLInputElement).checked
-        : type === 'number'
-          ? Number(value)
-          : decisionFlags.includes(name) && value !== ''
-            ? value === 'true'
-            : value === '' && decisionFlags.includes(name)
-              ? undefined
-              : value,
-    }));
-  };
-  const add = (key: keyof TaxProfile, value: object) => setFormData((current) => ({ ...current, [key]: [...(current[key] as object[]), value] }));
-  const remove = (key: keyof TaxProfile, index: number) => setFormData((current) => ({ ...current, [key]: (current[key] as object[]).filter((_, itemIndex) => itemIndex !== index) }));
-  const updateEntry = (key: keyof TaxProfile, index: number, field: string, value: string | number | boolean | undefined) => setFormData((current) => ({ ...current, [key]: (current[key] as object[]).map((item, itemIndex) => itemIndex === index ? { ...item, [field]: value } : item) }));
-
-  const addSalary = () => add('salary_income', { employer_name: '', gross_salary: 0, standard_deduction: 0, professional_tax: 0, tds: 0 });
-  const addProperty = () => add('house_properties', { property_type: 'self_occupied', city: '', annual_rent: 0, municipal_tax: 0, home_loan_interest: 0, ownership_share: 100, loan_purpose: 'purchase_or_construction', loan_sanction_date: '', construction_completed_within_five_years: false });
-  const addOther = () => add('other_income', { income_type: 'interest', description: '', amount: 0, tds: 0 });
-  const addPension = () => add('pension_income', { payer_name: '', amount: 0, tds: 0 });
-  const addCapitalGain = () => add('capital_gains', { asset_type: 'listed_equity_share', sale_consideration: 0, acquisition_cost: 0, improvement_cost: 0, transfer_expenses: 0 });
-  const addBusiness = () => add('business_income', { business_name: '', nature_of_business: '', gross_receipts: 0, net_profit_or_loss: 0 });
-  const addForeign = () => add('foreign_income_assets', { country: '', item_type: 'income', description: '', value: 0 });
-  const addTax = () => add('taxes_paid', { tax_type: 'tds', amount: 0, reference: '' });
-  const addInvestment = () => add('investments', { investment_type: '', amount: 0 });
-  const addDeduction = () => add('deductions', { section: '80C', amount: 0, is_dependent: false, disability_certificate_available: false, specified_disease: false, donation_eligible: false, has_hra: false, owns_residential_property_at_residence_or_work: false, first_home_owner: false, loan_from_financial_institution: false, section_24b_limit_exhausted: false });
-  const addBank = () => add('bank_accounts', { bank_name: '', account_number: '', ifsc_code: '', account_type: 'savings', is_primary: false });
-
-  const handleFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    setDocumentProcessing(true);
-    try {
-      const uploaded = await documentsAPI.upload(file, formData.assessment_year);
-      const processed = await documentsAPI.process(uploaded.data.id);
-      setFiles((current) => [...current, { id: uploaded.data.id, name: file.name }]);
-      saveAssistantMessage(processed.data.candidates.length
-        ? `Extracted values from ${file.name}. Review and confirm or reject them on the Documents page.`
-        : `${file.name} was processed, but no supported tax fields were found.`);
-      if (processed.data.candidates.length) await router.push('/documents');
-    } catch (uploadError: any) {
-      const detail = uploadError.response?.data?.detail;
-      setError(detail === 'DOCUMENT_REQUIRES_OCR'
-        ? 'No text was found and OCR could not run on this server. Upload a text-based PDF or enter the information manually.'
-        : apiErrorMessage(uploadError, 'Could not upload or process this document.'));
-    } finally {
-      setDocumentProcessing(false);
-    }
-  };
-  const removeFile = async (index: number) => {
-    const document = files[index];
-    if (!document) return;
-    try {
-      await documentsAPI.delete(document.id);
-      setFiles((current) => current.filter((_, fileIndex) => fileIndex !== index));
-    } catch (removeError: any) {
-      setError(apiErrorMessage(removeError, 'Could not remove this document.'));
-    }
-  };
-  const saveProfile = async () => {
-    const requiredChoices = ['is_senior_citizen', 'is_director', 'has_unlisted_equity', 'has_foreign_assets', 'has_foreign_income', 'has_business_income', 'has_speculative_income', 'has_carry_forward_loss'] as const;
-    if (!formData.residential_status || !formData.employment_type || requiredChoices.some((key) => formData[key] === undefined)) {
-      setError('Choose a residential status, work situation, and Yes or No for each return eligibility question. These are not preselected so TaxWise does not assume personal tax facts.');
-      return;
-    }
-    setSaving(true);
+    setLoading(true);
     setError('');
     try {
-      const response = formData.id ? await taxProfileAPI.update(formData.id, formData) : await taxProfileAPI.create(formData);
-      setFormData({ ...blankProfile, ...response.data });
-      const status = getProfileCompletion(response.data);
-      setProgress({ completed: Math.round(status.percent / 10), total: 10, percent: status.percent });
-      hydrated.current = true;
-      setAssistantMessages((current) => [...current, 'Your profile is saved. You can keep editing it here.']);
+      const [profileResponse, readinessResponse] = await Promise.all([
+        taxProfileAPI.getCurrentUser(),
+        readinessAPI.itr2(),
+      ]);
+      setProfile(profileResponse.data);
+      setReadiness(readinessResponse.data);
     } catch (err: any) {
-      setError(apiErrorMessage(err, 'Could not save your tax profile. Complete the required fields in the section you added.'));
+      setError(err?.response?.data?.detail || 'Could not load your Tax Profile.');
     } finally {
-      setSaving(false);
+      setLoading(false);
     }
-  };
-  const submit = async (event: React.FormEvent) => {
-    event.preventDefault();
-    await saveProfile();
-  };
-  const saveAssistantMessage = (message: string) => setAssistantMessages((current) => [...current, message]);
-  const sendAssistantMessage = async () => {
-    const question = assistantInput.trim();
-    if (!question) return;
-    saveAssistantMessage(`You: ${question}`);
-    setAssistantInput('');
+  }, [isAuthenticated]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const upload = async (file: File) => {
+    setUploading(true);
+    setError('');
+    setNotice('');
     try {
-      const response = await onboardingAPI.sendMessage(question);
-      setAssistantMessages((current) => [...current, response.data.assistant_message]);
-      setProgress(response.data.progress);
-      if (response.data.requires_confirmation) {
-        const values = response.data.candidate_values;
-        setProposal({ salary: values.salary_income?.[0]?.gross_salary ?? undefined, tds: values.salary_tds ?? undefined });
-      }
+      const uploaded = await documentsAPI.upload(file, profile?.assessment_year || '2026-27', 'other');
+      await documentsAPI.process(uploaded.data.id);
+      setNotice('Document processed. Review the extracted facts before confirming them.');
+      await load();
     } catch (err: any) {
-      setError(apiErrorMessage(err, 'The assistant could not process that answer.'));
+      setError(err?.response?.data?.detail || 'Document processing failed. Please try another file.');
+    } finally {
+      setUploading(false);
     }
   };
-  const confirmProposal = async () => {
-    try {
-      const response = await onboardingAPI.confirm('confirm');
-      setAssistantMessages((current) => [...current, response.data.assistant_message]);
-      setProgress(response.data.progress);
-      if (response.data.profile) setFormData({ ...blankProfile, ...response.data.profile });
-      setProposal(null);
-    } catch (err: any) {
-      setError(apiErrorMessage(err, 'Could not save the proposed profile update.'));
-      return;
-    }
-    setProposal(null);
-  };
-  const rejectProposal = async () => {
-    await onboardingAPI.confirm('reject');
-    setProposal(null);
-    saveAssistantMessage('No changes made. Let\'s continue with the next question.');
-  };
-  const steps = ['About you', 'Residence & return', 'Income sources', 'Deductions', 'Taxes & banks', 'Documents'];
-  const returnFlags: [string, string][] = [['is_senior_citizen','Senior citizen'],['is_director','Company director'],['has_unlisted_equity','Unlisted shares'],['has_foreign_assets','Foreign assets'],['has_foreign_income','Foreign income'],['has_business_income','Business or professional income'],['has_speculative_income','Speculative income'],['has_carry_forward_loss','Loss to carry forward']];
-  const capitalGainFields = [
-    { name: 'asset_type', label: 'Asset type', options: [
-      { value: 'listed_equity_share', label: 'Listed equity share' },
-      { value: 'equity_oriented_mutual_fund', label: 'Equity-oriented mutual fund' },
-      { value: 'other_security', label: 'Other security' },
-      { value: 'immovable_property', label: 'Immovable property' },
-      { value: 'gold_or_other', label: 'Gold or other asset' },
-    ] },
-    { name: 'acquisition_date', label: 'Acquisition date', type: 'date' },
-    { name: 'sale_date', label: 'Sale date', type: 'date' },
-    { name: 'sale_consideration', label: 'Sale consideration', type: 'number' },
-    { name: 'acquisition_cost', label: 'Acquisition cost', type: 'number' },
-    { name: 'improvement_cost', label: 'Improvement cost', type: 'number' },
-    { name: 'transfer_expenses', label: 'Transfer expenses', type: 'number' },
-    { name: 'quantity', label: 'Quantity (shares / units)', type: 'number' },
-    { name: 'grandfathered_fmv_2018', label: 'FMV on 31 Jan 2018, if applicable', type: 'number' },
-    { name: 'is_listed', label: 'Asset is listed', options: [{ value: true, label: 'Yes' }, { value: false, label: 'No' }] },
-    { name: 'is_equity_oriented', label: 'Fund is equity-oriented', options: [{ value: true, label: 'Yes' }, { value: false, label: 'No' }] },
-    { name: 'stt_paid_on_acquisition', label: 'STT paid on acquisition', options: [{ value: true, label: 'Yes' }, { value: false, label: 'No' }] },
-    { name: 'stt_paid_on_transfer', label: 'STT paid on transfer', options: [{ value: true, label: 'Yes' }, { value: false, label: 'No' }] },
-  ];
-  const field = (name: string, label: string, type = 'text') => <label className="block text-sm text-gray-700">{label}<input className={inputClass} name={name} type={type} value={(formData as any)[name] ?? ''} onChange={update} /></label>;
-  const listEditor = (key: keyof TaxProfile, title: string, addLabel: string, onAdd: () => void, fields: { name: string; label: string; type?: string; options?: { value: string | boolean; label: string }[] }[]) => {
-    const visibleFields = key === 'capital_gains' ? capitalGainFields : fields;
-    return (
-      <section className="space-y-3">
-        <div className="flex items-center justify-between">
-          <h3 className="font-semibold text-gray-900">{title}</h3>
-          <button type="button" onClick={onAdd} className="text-sm font-medium text-primary">+ {addLabel}</button>
-        </div>
-        {(formData[key] as any[]).map((entry, index) => (
-          <div key={index} className="rounded-md border border-gray-200 p-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              {visibleFields.map((item) => {
-                if (item.type === 'checkbox') {
-                  return <label key={item.name} className="flex items-center gap-2 text-sm text-gray-700"><input type="checkbox" checked={Boolean(entry[item.name])} onChange={(event) => updateEntry(key, index, item.name, event.target.checked)} />{item.label}</label>;
-                }
-                if (item.options) {
-                  return <label key={item.name} className="text-sm text-gray-700">{item.label}<select className={inputClass} value={entry[item.name] === undefined ? '' : String(entry[item.name])} onChange={(event) => { const selected = item.options?.find((option) => String(option.value) === event.target.value); updateEntry(key, index, item.name, selected?.value); }}><option value="">Select...</option>{item.options.map((option) => <option key={String(option.value)} value={String(option.value)}>{option.label}</option>)}</select></label>;
-                }
-                return <label key={item.name} className="text-sm text-gray-700">{item.label}<input className={inputClass} type={item.type || 'text'} value={entry[item.name] ?? ''} onChange={(event) => updateEntry(key, index, item.name, item.type === 'number' ? Number(event.target.value) : item.type === 'date' && event.target.value === '' ? undefined : event.target.value)} /></label>;
-              })}
-            </div>
-            <button type="button" onClick={() => remove(key, index)} className="mt-3 text-xs text-red-600">Remove</button>
+
+  if (!isAuthenticated) {
+    return <main className="min-h-screen bg-slate-50 p-8 text-slate-600">Please sign in to continue.</main>;
+  }
+
+  return (
+    <main className="min-h-screen bg-[#F8FAFC] text-[#0F172A]">
+      <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8">
+        <header className="mb-7 flex flex-wrap items-start justify-between gap-4">
+          <div>
+            <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-700">TaxWise</p>
+            <h1 className="mt-2 text-3xl font-bold tracking-tight">Tax Profile & ITR readiness</h1>
+            <p className="mt-2 max-w-2xl text-sm text-slate-600">
+              TaxWise determines what is actually required for your return. It does not count unrelated empty profile fields.
+            </p>
           </div>
-        ))}
-      </section>
-    );
-  };
+          <ReturnToDashboard />
+        </header>
 
-  const handleAssistantFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    setDocumentProcessing(true);
-    try {
-      setError('');
-      saveAssistantMessage(`File selected: ${file.name}. Uploading and processing...`);
-      const uploaded = await documentsAPI.upload(file, formData.assessment_year);
-      const processed = await documentsAPI.process(uploaded.data.id);
-      const candidateSummary = processed.data.candidates.map((candidate: { field: string; value: string }) => `${candidate.field.replace('deduction_', '')}: ${candidate.value}`).join(' | ');
-      if (processed.data.candidates.length) {
-        saveAssistantMessage('I found candidate values. Review and confirm or reject them on the Documents page before they update your Tax Profile.');
-        if (candidateSummary) saveAssistantMessage(candidateSummary);
-        await router.push('/documents');
-        return;
-      }
-      saveAssistantMessage(`${file.name} was processed, but no supported tax fields were found. You can continue chatting or fill the profile manually.`);
-    } catch (err: any) {
-      const detail = err.response?.data?.detail;
-      const message = detail === 'DOCUMENT_REQUIRES_OCR'
-        ? 'No text was found and OCR could not run on this server. Upload a text-based PDF or enter the information manually.'
-        : apiErrorMessage(err, 'I couldn\'t upload or process this file. You can continue manually.');
-      saveAssistantMessage(message);
-    } finally {
-      setDocumentProcessing(false);
-    }
-  };
+        {error && <p className="mb-5 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800">{error}</p>}
+        {notice && <p className="mb-5 rounded-xl border border-emerald-200 bg-emerald-50 p-4 text-sm text-emerald-800">{notice}</p>}
 
-  return <div className="page-shell"><div className="page-container"><header className="mb-8"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="section-kicker">TaxWise profile workspace</p><h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Your AY 2026-27 tax profile</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">Only information you enter or explicitly confirm is used for your personal tax calculations.</p></div><div className="flex flex-wrap gap-2"><ReturnToDashboard /><a href="/taxpayer-profile" className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Cancel</a></div></div><div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress.percent}%` }} /></div><div className="mt-2 flex items-center justify-between"><p className="text-xs font-medium text-slate-500">Profile completion</p><p className="text-xs font-semibold text-emerald-700">{progress.percent}%</p></div><div className="mt-4 flex flex-wrap gap-2 text-xs"><span className="chip">User-provided / confirmed</span><span className="chip">Documents require review</span><span className="chip">Engine results stay separate</span><span className="chip">AI suggestions are never auto-saved</span></div></header><div className="grid items-start gap-6 lg:grid-cols-[1.18fr_0.82fr]"><section className="min-w-0 lg:max-h-[calc(100vh-170px)] lg:overflow-y-auto lg:pr-2"><div className="mb-5 grid grid-cols-3 gap-2 sm:grid-cols-6">{steps.map((name, index) => <button type="button" key={name} onClick={() => setStep(index + 1)} className={`rounded-xl border px-2.5 py-2.5 text-xs font-medium transition-all ${step === index + 1 ? 'border-emerald-200 bg-emerald-50 font-semibold text-emerald-800 shadow-sm' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700'}`}><span className="mr-1">{index + 1}.</span>{name}</button>)}</div><form onSubmit={submit} className="surface-panel space-y-6 p-5 sm:p-7">
-    {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
-    {step === 1 && <div className="space-y-4"><h2 className="text-xl font-semibold">About you</h2><div className="grid gap-4 sm:grid-cols-2">{field('date_of_birth', 'Date of birth', 'date')}{field('pan_number', 'PAN (10 characters)')}{field('citizenship', 'Citizenship')}{field('nationality', 'Nationality')}{field('pincode', 'PIN code')}{field('city', 'City')}</div>{field('address', 'Residential address')}<div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Gender<select className={inputClass} name="gender" value={formData.gender || ''} onChange={update}><option value="">Choose</option><option>male</option><option>female</option><option>other</option></select></label><label className="text-sm text-gray-700">Marital status<select className={inputClass} name="marital_status" value={formData.marital_status || ''} onChange={update}><option value="">Choose</option><option>single</option><option>married</option><option>divorced</option><option>widowed</option></select></label></div></div>}
-    {step === 2 && <div className="space-y-4"><h2 className="text-xl font-semibold">Residence and return details</h2><p className="text-sm text-gray-600">Choose these values explicitly. TaxWise does not assume a residency, employment situation, or return eligibility flag.</p><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Residential status<select className={inputClass} name="residential_status" value={formData.residential_status} onChange={update}><option value="">Select residential status</option><option value="resident">Resident</option><option value="non_resident">Non-resident</option><option value="nri">NRI</option></select></label><label className="text-sm text-gray-700">Work situation<select className={inputClass} name="employment_type" value={formData.employment_type} onChange={update}><option value="">Select work situation</option><option value="salaried">Salaried</option><option value="self_employed">Self-employed</option><option value="both">Both</option><option value="none">Not working</option></select></label>{field('employer_name', 'Employer or organisation')}{field('assessment_year', 'Assessment year')}</div><div className="grid gap-3 sm:grid-cols-2">{returnFlags.map(([name, label]) => <label key={name} className="block text-sm text-gray-700">{label}<select className={inputClass} name={name} value={(formData as any)[name] === undefined ? '' : String((formData as any)[name])} onChange={update}><option value="">Select Yes or No</option><option value="true">Yes</option><option value="false">No</option></select></label>)}</div></div>}
-    {step === 3 && <div className="space-y-6"><h2 className="text-xl font-semibold">Income sources</h2>{listEditor('salary_income','Salary','salary',addSalary,[{name:'employer_name',label:'Employer'},{name:'gross_salary',label:'Annual gross salary',type:'number'},{name:'tds',label:'TDS shown on Form 16',type:'number'}])}{listEditor('pension_income','Pension','pension',addPension,[{name:'payer_name',label:'Pension payer'},{name:'amount',label:'Annual pension',type:'number'},{name:'tds',label:'TDS',type:'number'}])}{listEditor('house_properties','House property','property',addProperty,[{name:'property_type',label:'Type: self_occupied, let_out, or deemed_let_out'},{name:'city',label:'Property city'},{name:'annual_rent',label:'Annual rent',type:'number'},{name:'municipal_tax',label:'Municipal taxes paid',type:'number'},{name:'home_loan_interest',label:'Home-loan interest',type:'number'},{name:'loan_purpose',label:'Loan purpose: purchase_or_construction or repair'},{name:'loan_sanction_date',label:'Loan sanction date',type:'date'},{name:'construction_completed_within_five_years',label:'Construction completed within five years',type:'checkbox'}])}{listEditor('other_income','Interest, dividends and other income','income source',addOther,[{name:'description',label:'Description'},{name:'amount',label:'Amount',type:'number'},{name:'tds',label:'TDS',type:'number'}])}{listEditor('capital_gains','Capital gains','capital gain',addCapitalGain,[{name:'asset_type',label:'Asset type'},{name:'sale_value',label:'Sale value',type:'number'},{name:'cost_of_acquisition',label:'Purchase cost',type:'number'},{name:'gain_or_loss',label:'Gain or loss',type:'number'}])}{formData.has_business_income && listEditor('business_income','Business or professional income','business',addBusiness,[{name:'business_name',label:'Business name'},{name:'nature_of_business',label:'Nature of work'},{name:'gross_receipts',label:'Gross receipts',type:'number'},{name:'net_profit_or_loss',label:'Net profit or loss',type:'number'}])}{(formData.has_foreign_income || formData.has_foreign_assets) && listEditor('foreign_income_assets','Foreign income or assets','foreign item',addForeign,[{name:'country',label:'Country'},{name:'item_type',label:'Income or asset type'},{name:'description',label:'Description'},{name:'value',label:'Value',type:'number'}])}</div>}
-    {step === 4 && <div className="space-y-6"><h2 className="text-xl font-semibold">Investments and deductions</h2><p className="text-sm text-gray-600">Enter the supporting facts for complex claims. TaxWise rejects a calculation if statutory facts or evidence details are missing.</p>{listEditor('investments','Investments','investment',addInvestment,[{name:'investment_type',label:'Type (for example, PPF)'},{name:'amount',label:'Amount',type:'number'}])}{listEditor('deductions','Deductions','deduction',addDeduction,[{name:'section',label:'Section (for example, 80C)'},{name:'amount',label:'Eligible payment or interest',type:'number'},{name:'dependent_relationship',label:'Dependent relationship (80DD/80DDB)'},{name:'dependent_age_category',label:'Patient age: individual, senior, super_senior'},{name:'disability_percentage',label:'Disability percentage',type:'number'},{name:'medical_expenditure',label:'Medical or maintenance expenditure',type:'number'},{name:'reimbursement_amount',label:'Reimbursement or insurance amount',type:'number'},{name:'donation_category',label:'80G category'},{name:'donation_mode',label:'80G payment: cash or non_cash'},{name:'form_10ba_acknowledgement',label:'80GG Form 10BA acknowledgement'},{name:'annual_rent',label:'80GG annual rent',type:'number'},{name:'loan_sanction_date',label:'80EE/80EEA sanction date',type:'date'},{name:'loan_amount',label:'80EE/80EEA loan amount',type:'number'},{name:'property_stamp_duty_value',label:'80EE/80EEA stamp-duty value',type:'number'},{name:'is_dependent',label:'Patient is a dependent',type:'checkbox'},{name:'disability_certificate_available',label:'Disability certificate available',type:'checkbox'},{name:'specified_disease',label:'Specified disease certified',type:'checkbox'},{name:'donation_eligible',label:'Donee is 80G eligible',type:'checkbox'},{name:'has_hra',label:'HRA received',type:'checkbox'},{name:'owns_residential_property_at_residence_or_work',label:'Owns residence/work-location property',type:'checkbox'},{name:'first_home_owner',label:'First-home condition met',type:'checkbox'},{name:'loan_from_financial_institution',label:'Loan from financial institution',type:'checkbox'},{name:'section_24b_limit_exhausted',label:'Section 24(b) limit exhausted (80EEA)',type:'checkbox'}])}</div>}
-    {step === 5 && <div className="space-y-6"><h2 className="text-xl font-semibold">Taxes paid and bank accounts</h2><p className="text-sm text-gray-600">Bank details are used for refund processing. Account numbers are masked in API responses.</p>{listEditor('taxes_paid','TDS, advance tax and self-assessment tax','tax payment',addTax,[{name:'tax_type',label:'Payment type'},{name:'amount',label:'Amount',type:'number'},{name:'reference',label:'Challan or reference'}])}{listEditor('bank_accounts','Bank accounts','account',addBank,[{name:'bank_name',label:'Bank name'},{name:'account_number',label:'Account number'},{name:'ifsc_code',label:'IFSC code'}])}</div>}
-    {step === 6 && <div className="space-y-4"><h2 className="text-xl font-semibold">Your documents</h2><p className="text-sm text-gray-600">Upload a PDF or Excel workbook. TaxWise does not fetch documents from the Income Tax Department or your bank.</p><input type="file" accept="application/pdf,.xlsx,.xlsm" onChange={handleFiles} disabled={documentProcessing} className="block w-full text-sm" />{files.length > 0 && <ul className="space-y-2 text-sm text-gray-700">{files.map((file, index) => <li key={file.id} className="flex items-center justify-between gap-3 rounded border border-gray-200 px-3 py-2"><span className="truncate">{file.name}</span><button type="button" onClick={() => removeFile(index)} className="shrink-0 text-xs font-medium text-red-600">Remove</button></li>)}</ul>}</div>}
-    <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-6"><button type="button" disabled={step === 1} onClick={() => setStep(step - 1)} className="rounded-md border px-4 py-2 text-sm disabled:opacity-40">Previous</button><div className="flex gap-2"><button type="submit" disabled={saving} className="rounded-md border border-primary px-4 py-2 text-sm font-medium text-primary disabled:opacity-50">{saving ? 'Saving...' : 'Save progress'}</button>{step < 6 && <button type="button" onClick={() => setStep(step + 1)} className="rounded-md bg-primary px-4 py-2 text-sm text-white">Next</button>}</div></div>
-  </form></section><aside className="flex min-h-[520px] flex-col rounded-[24px] border border-slate-800 bg-slate-950 p-5 text-white shadow-xl lg:sticky lg:sticky lg:top-6 lg:max-h-[calc(100vh-48px)]"><div className="border-b border-slate-800 pb-4"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">TaxWise assistant</p><h2 className="mt-2 text-2xl font-semibold tracking-tight">Let’s fill this together</h2><p className="mt-2 text-sm text-slate-300">I can propose profile updates for your review. I do not calculate tax.</p></div><div className="flex-1 space-y-3 overflow-y-auto py-5" aria-live="polite">{assistantMessages.map((message, index) => <p key={`${message}-${index}`} className={`max-w-[92%] rounded-2xl px-3 py-2 text-sm ${message.startsWith('You:') ? 'ml-auto bg-emerald-400 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>{message}</p>)}{proposal && <div className="rounded-lg border border-emerald-400/50 bg-slate-800 p-4 text-sm"><p className="font-semibold text-emerald-300">Proposed profile update</p>{proposal.salary !== undefined && <p className="mt-2">Salary: ₹{proposal.salary.toLocaleString('en-IN')}</p>}{proposal.tds !== undefined && <p>TDS: ₹{proposal.tds.toLocaleString('en-IN')}</p>}<div className="mt-4 flex gap-2"><button type="button" onClick={confirmProposal} className="rounded-md bg-emerald-400 px-3 py-2 font-medium text-slate-950">Add to profile</button><button type="button" onClick={() => setProposal(null)} className="rounded-md border border-slate-500 px-3 py-2">Review first</button></div></div>}</div><div className="border-t border-slate-700 pt-4"><div className="flex gap-2"><input value={assistantInput} onChange={(event) => setAssistantInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') sendAssistantMessage(); }} placeholder="Ask a question or describe your tax details..." className="min-w-0 flex-1 rounded-md border-0 bg-white px-3 py-2 text-sm text-slate-900" /><button type="button" onClick={sendAssistantMessage} className="rounded-md bg-emerald-400 px-4 py-2 text-sm font-semibold text-slate-950">Send</button></div><div className="mt-3 flex flex-wrap items-center gap-3"><input ref={assistantFileInput} type="file" accept="application/pdf,.xlsx,.xlsm" className="hidden" aria-label="Choose a tax document to attach" onChange={handleAssistantFile} disabled={documentProcessing} /><button type="button" onClick={() => assistantFileInput.current?.click()} disabled={documentProcessing} className="inline-flex items-center gap-2 rounded-md border border-slate-500 px-3 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"><span aria-hidden="true">+</span>{documentProcessing ? 'Uploading...' : 'Attach tax document'}</button><span className="text-xs text-slate-400">{documentProcessing ? 'Processing your file...' : 'PDF or Excel (.xlsx, .xlsm)'}</span></div></div></aside></div></div></div>;
+        <section className="mb-6 grid gap-5 lg:grid-cols-[1fr_300px]">
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <div className="flex flex-wrap items-end justify-between gap-4">
+              <div>
+                <p className="text-sm font-semibold text-slate-500">Preparation readiness</p>
+                <p className="mt-1 text-4xl font-bold">{readiness?.completion_percentage ?? 0}%</p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {readiness ? `${readiness.complete_required} of ${readiness.total_required} required facts complete` : 'Calculating…'}
+                </p>
+              </div>
+              <div className={`rounded-xl px-4 py-3 text-sm font-semibold ${readiness?.ready ? 'bg-emerald-50 text-emerald-800' : 'bg-amber-50 text-amber-800'}`}>
+                {readiness?.ready ? '✓ Ready for ITR-2 preparation' : 'Needs information or review'}
+              </div>
+            </div>
+            <div className="mt-5 h-3 overflow-hidden rounded-full bg-slate-100">
+              <div className="h-full rounded-full bg-emerald-600 transition-all" style={{ width: `${readiness?.completion_percentage ?? 0}%` }} />
+            </div>
+          </div>
+
+          <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <p className="text-sm font-semibold text-slate-500">Current return</p>
+            <p className="mt-2 text-2xl font-bold">{readiness?.itr || 'ITR-2'}</p>
+            <p className="mt-2 text-sm text-slate-500">AY {profile?.assessment_year || '2026-27'}</p>
+            <Link href="/taxpayer-profile" className="mt-5 inline-flex rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white">
+              Edit Tax Profile
+            </Link>
+          </div>
+        </section>
+
+        <section className="mb-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+          <div className="flex flex-wrap items-center justify-between gap-4">
+            <div>
+              <h2 className="text-lg font-semibold">Upload tax documents</h2>
+              <p className="mt-1 text-sm text-slate-500">
+                Upload Form 16, AIS, bank/investment statements or your ITR-2 test PDF. TaxWise extracts facts first; nothing is silently added to your profile.
+              </p>
+            </div>
+            <label className="cursor-pointer rounded-xl bg-emerald-700 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-800">
+              {uploading ? 'Processing…' : 'Upload PDF / Excel'}
+              <input
+                type="file"
+                accept="application/pdf,.xlsx,.xlsm"
+                className="hidden"
+                disabled={uploading}
+                onChange={(event) => {
+                  const file = event.target.files?.[0];
+                  if (file) void upload(file);
+                  event.currentTarget.value = '';
+                }}
+              />
+            </label>
+          </div>
+        </section>
+
+        <section className="grid gap-4 md:grid-cols-2">
+          {(readiness?.sections || []).map((section) => (
+            <div key={section.name} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div className="flex items-center justify-between">
+                <h2 className="font-semibold">{section.name}</h2>
+                <span className={`text-sm font-semibold ${section.missing || section.review ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {section.complete}/{section.total}
+                </span>
+              </div>
+              <p className="mt-2 text-sm text-slate-500">
+                {section.missing ? `${section.missing} missing` : 'No missing required facts'}
+                {section.review ? ` · ${section.review} awaiting confirmation` : ''}
+              </p>
+            </div>
+          ))}
+        </section>
+
+        {(readiness?.missing?.length || readiness?.needs_confirmation?.length) ? (
+          <section className="mt-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
+            <h2 className="text-lg font-semibold">What TaxWise still needs</h2>
+            <div className="mt-4 space-y-3">
+              {readiness.missing.map((item) => (
+                <div key={item.key} className="rounded-xl border border-red-100 bg-red-50 p-4">
+                  <p className="font-semibold text-red-900">{item.label}</p>
+                  <p className="mt-1 text-xs text-red-700">{item.section} · Missing</p>
+                </div>
+              ))}
+              {readiness.needs_confirmation.map((item) => (
+                <div key={item.key} className="rounded-xl border border-amber-100 bg-amber-50 p-4">
+                  <p className="font-semibold text-amber-900">{item.label}</p>
+                  <p className="mt-1 text-xs text-amber-700">{item.section} · Review required{item.source ? ` · ${item.source}` : ''}{item.page ? ` · Page ${item.page}` : ''}</p>
+                </div>
+              ))}
+            </div>
+          </section>
+        ) : null}
+
+        {loading && <p className="mt-6 text-sm text-slate-500">Loading readiness…</p>}
+      </div>
+    </main>
+  );
 };
+
 export default TaxProfilePage;

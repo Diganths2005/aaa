@@ -109,6 +109,8 @@ class Deduction(BaseModel):
     disability_certificate_available: Optional[bool] = None
     donation_mode: Optional[Literal["cash", "non_cash"]] = None
     donation_eligible: Optional[bool] = None
+    donation_reference: Optional[str] = None
+    donation_ifsc_code: Optional[str] = None
     form_10ba_acknowledgement: Optional[str] = None
     owns_residential_property_at_residence_or_work: Optional[bool] = None
     loan_from_financial_institution: Optional[bool] = None

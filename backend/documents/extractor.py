@@ -2,6 +2,7 @@ from typing import List
 
 from .complete_field_extractor import extract_complete_candidates
 from .field_extractor import extract_candidates
+from .itr2_extractor import extract_itr2_candidates
 from .models import ExtractionResult
 from .pdf_extractor import extract_pdf_pages
 from .structured_extractors import extract_structured_candidates
@@ -24,11 +25,18 @@ def process_pdf(content: bytes, document_type: str = "other") -> ExtractionResul
         "other": "OTHER",
     }
     source = source_map.get(document_type, "OTHER")
+
     structured = extract_structured_candidates(pages, document_type)
+    itr2 = extract_itr2_candidates(pages, source)
     complete = extract_complete_candidates(pages, source)
     generic = extract_candidates(pages, source=source)
-    seen = {item.field for item in structured}
-    candidates = structured + [item for item in complete if item.field not in seen]
+
+    # Keep specialized transaction candidates even when they share a broad
+    # field with generic extraction. A transaction is a distinct fact object.
+    candidates = structured + itr2
+    seen = {item.field for item in candidates}
+    candidates.extend(item for item in complete if item.field not in seen)
     seen.update(item.field for item in candidates)
     candidates.extend(item for item in generic if item.field not in seen)
+
     return ExtractionResult("\f".join(pages), len(pages), candidates, document_type)

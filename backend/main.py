@@ -4,13 +4,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from config import ALLOWED_ORIGINS, PROJECT_NAME, PROJECT_VERSION, API_V1_STR, DATABASE_URL, OPENAI_API_KEY
 from database import Base, engine
-from routes import auth, chat, deductions, documents, itr, onboarding, tax_profile, tax, what_if
+from routes import auth, chat, deductions, documents, itr, onboarding, readiness, tax_profile, tax, what_if
 from tax_engine.models import TaxEngineError
 
-# Create tables
 Base.metadata.create_all(bind=engine)
 
-# Create FastAPI app
 app = FastAPI(
     title=PROJECT_NAME,
     version=PROJECT_VERSION,
@@ -20,7 +18,6 @@ app = FastAPI(
 async def tax_engine_error_handler(request: Request, exc: TaxEngineError):
     return JSONResponse(status_code=422, content={"error": {"code": exc.code, "message": exc.message}})
 
-# CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=ALLOWED_ORIGINS,
@@ -29,12 +26,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Include routers
 app.include_router(auth.router, prefix=API_V1_STR)
 app.include_router(tax_profile.router, prefix=API_V1_STR)
 app.include_router(deductions.router, prefix=API_V1_STR)
 app.include_router(documents.router, prefix=API_V1_STR)
 app.include_router(onboarding.router, prefix=API_V1_STR)
+app.include_router(readiness.router, prefix=API_V1_STR)
 app.include_router(chat.router, prefix=API_V1_STR)
 app.include_router(itr.router)
 app.include_router(tax.router)
