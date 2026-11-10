@@ -1,6 +1,8 @@
-# Conversational Onboarding
+# Legacy Onboarding APIs
 
-Conversational onboarding is a guided interface over the existing Tax Profile, not a second profile. The left form and right assistant share the same database-backed profile.
+The conversational onboarding wizard is deprecated. The current user workflow is the structured Tax Profile editor, document upload and per-fact review, and the Fact Readiness panel. Backend onboarding endpoints remain available for compatibility with existing clients; new frontend features should use the fact and Tax Profile APIs instead.
+
+The notes below describe the legacy backend workflow only. They are not a recommendation to add the retired assistant UI back to Tax Profile.
 
 ## State machine
 
@@ -20,11 +22,11 @@ Negative answers mark optional branches skipped. Positive answers complete the b
 
 `POST /api/v1/onboarding/message` returns the assistant response, current field, candidate values, confirmation requirement, progress, next field, and profile. Candidates are not saved. `POST /api/v1/onboarding/confirm` accepts `confirm` or `reject`; only confirmation persists a candidate and returns the updated profile for the left form. Manual left-panel edits continue through the existing profile `PUT` route, so the next session read sees the latest database value.
 
-Uploaded documents are processed by the document API before their candidate values are staged through `POST /api/v1/onboarding/document-candidate`. The Documents page displays the candidates and requires explicit Confirm or Reject. Confirmation checks the owned pending document, validates the profile update, and records the review status; rejection leaves the profile unchanged. OCR is attempted only when a Tesseract executable is installed.
+New document review persists facts and evidence at extraction time and resolves them through `/api/v1/facts`. The legacy `POST /api/v1/onboarding/document-candidate` and confirmation routes remain only for older clients.
 
 ## Sources and safety
 
-Candidates carry their origin at the API boundary (`USER` for messages and `DOCUMENT` for document candidates). Future source metadata can be preserved alongside profile values for reconciliation. The LLM boundary is explanation and natural-language understanding only: it cannot calculate tax, decide eligibility, bypass validation, or write directly to the database. The deterministic Tax Engine remains the source of truth.
+The newer fact store records source type, confidence, evidence, assessment year, status, and mapping status. The LLM boundary is explanation and natural-language understanding only: it cannot calculate tax, decide eligibility, bypass validation, or write directly to the database. The deterministic Tax Engine remains the source of truth.
 
 ## API
 

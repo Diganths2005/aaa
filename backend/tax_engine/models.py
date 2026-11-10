@@ -1,7 +1,7 @@
 from decimal import Decimal
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from schemas.tax_profile import TaxProfileCreate
 
@@ -13,9 +13,32 @@ class TaxCalculationInput(BaseModel):
     profile: TaxProfileCreate
     regime: Regime
 
+    @model_validator(mode="before")
+    @classmethod
+    def accept_tax_profile_response(cls, values):
+        if not isinstance(values, dict):
+            return values
+        profile = values.get("profile")
+        if isinstance(profile, dict):
+            profile = dict(profile)
+            # Tax Profile responses intentionally expose masked PAN and metadata
+            # that are not part of TaxProfileCreate. Calculation does not need
+            # either, so accept a response-shaped profile safely.
+            if isinstance(profile.get("pan_number"), str) and "*" in profile["pan_number"]:
+                profile.pop("pan_number", None)
+            for field in ("id", "user_id", "created_at", "updated_at"):
+                profile.pop(field, None)
+            values = {**values, "profile": profile}
+        return values
+
 
 class CapitalGainResult(BaseModel):
     asset_type: str
+    asset_identifier: Optional[str] = None
+    acquisition_date: Optional[str] = None
+    sale_date: Optional[str] = None
+    source_reported_holding_period: Optional[str] = None
+    source_reported_gain_type: Optional[str] = None
     holding_period: Literal["short_term", "long_term"]
     sale_consideration: Decimal
     acquisition_cost: Decimal

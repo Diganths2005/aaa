@@ -16,6 +16,8 @@ from routes.auth import get_current_user
 from schemas.onboarding import DocumentCandidateRequest, OnboardingConfirmRequest, OnboardingMessageRequest, OnboardingSessionResponse
 from schemas.tax_profile import TaxProfileCreate, TaxProfileResponse
 from services.onboarding import apply_candidate, initial_state, next_question, parse_answer, progress, start_state
+from services.profile_service import ProfileService
+from services.fact_store import facts_for_document, record_profile_facts
 from utils.common import generate_id
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -45,7 +47,7 @@ def find_session(current_user: User, db: Session) -> OnboardingSession:
     return session
 
 
-def response(session: OnboardingSession, message: str, candidate: Optional[Dict[str, Any]] = None, requires_confirmation: bool = False, profile: Optional[TaxProfile] = None) -> OnboardingSessionResponse:
+def response(session: OnboardingSession, message: str, candidate: Optional[Dict[str, Any]] = None, requires_confirmation: bool = False, profile: Optional[TaxProfile] = None, reconciliation_warnings: Optional[list[Dict[str, Any]]] = None) -> OnboardingSessionResponse:
     state = start_state(session.state)
     question = next_question(state)
     return OnboardingSessionResponse(
@@ -59,6 +61,7 @@ def response(session: OnboardingSession, message: str, candidate: Optional[Dict[
         completed_fields=state.get("completed_fields", []),
         skipped_fields=state.get("skipped_fields", []),
         profile=profile_dict(profile),
+        reconciliation_warnings=reconciliation_warnings or [],
     )
 
 
@@ -109,7 +112,8 @@ def message(request: OnboardingMessageRequest, current_user: User = Depends(get_
 
 
 def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], current_user: User, db: Session) -> TaxProfile:
-    profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
+    service = ProfileService(db)
+    profile = service.get(current_user.id)
     existing = raw_profile_dict(profile)
     profile_candidate = deepcopy(candidate)
     candidate_name = profile_candidate.pop("name", None)
@@ -117,6 +121,7 @@ def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], cur
         name_parts = candidate_name.split(maxsplit=1)
         current_user.first_name = name_parts[0]
         current_user.last_name = name_parts[1] if len(name_parts) > 1 else ""
+
     merged = {**existing, **profile_candidate}
     if "salary_tds" in merged:
         salary_income = list(merged.get("salary_income") or [])
@@ -129,27 +134,23 @@ def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], cur
             taxes_paid = merged.setdefault("taxes_paid", [])
             if not any(item.get("tax_type") == "tds" and item.get("amount") == salary_tds for item in taxes_paid):
                 taxes_paid.append({"tax_type": "tds", "amount": salary_tds})
+
     merged.pop("id", None)
     merged.pop("user_id", None)
     try:
         validated = TaxProfileCreate.model_validate(merged)
+        saved = service.save(current_user.id, validated)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(exc)) from exc
-    if profile:
-        for field, value in validated.model_dump(mode="json").items():
-            setattr(profile, field, value)
-    else:
-        profile = TaxProfile(id=generate_id(), user_id=current_user.id, **validated.model_dump(mode="json"))
-        db.add(profile)
-    try:
-        db.commit()
     except IntegrityError as exc:
         db.rollback()
-        message = "A tax profile with this PAN already exists. Please use a different PAN or update the existing profile."
-        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=message) from exc
-    db.refresh(profile)
-    session.profile_id = profile.id
-    return profile
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="A tax profile with this PAN already exists. Please use a different PAN or update the existing profile.",
+        ) from exc
+    session.profile_id = saved.id
+    record_profile_facts(db, current_user.id, validated)
+    return saved
 
 
 @router.post("/confirm", response_model=OnboardingSessionResponse)
@@ -168,24 +169,43 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
         ).first()
         if not document or document.status != "REQUIRES_CONFIRMATION":
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document review is no longer available")
+    warnings = []
+    if document:
+        existing_profile = db.query(TaxProfile).filter(TaxProfile.user_id == current_user.id).first()
+        existing_documents = db.query(UserDocument).filter(
+            UserDocument.user_id == current_user.id,
+            UserDocument.id != document.id,
+        ).all()
+        if existing_profile or existing_documents:
+            warnings = reconcile_candidate(
+                TaxProfileCreate.model_validate(existing_profile) if existing_profile else None,
+                candidate,
+                existing_documents,
+            )
     if request.action == "confirm":
         profile = persist_candidate(session, candidate, current_user, db)
         session.state = apply_candidate(state, candidate, "confirm")
         message_text = "Confirmed. I updated your Tax Profile."
         if document:
+            for fact in facts_for_document(db, current_user.id, document.id):
+                if fact.status in {"EXTRACTED", "NEEDS_CONFIRMATION"}:
+                    fact.status = "CONFIRMED"
             document.status = "CONFIRMED"
     else:
         profile = db.query(TaxProfile).filter(TaxProfile.id == session.profile_id).first() if session.profile_id else None
         session.state = apply_candidate(state, candidate, "reject")
         message_text = "No changes made. Let's continue with the next question."
         if document:
+            for fact in facts_for_document(db, current_user.id, document.id):
+                if fact.status not in {"CONFIRMED", "SUPERSEDED"}:
+                    fact.status = "REJECTED"
             document.status = "REJECTED"
             db.query(UserDocumentChunk).filter(
                 UserDocumentChunk.document_id == document.id
             ).delete(synchronize_session=False)
     db.commit()
     question = next_question(session.state)
-    return response(session, message_text + (f" {question.text}" if question else " Your Tax Profile is complete."), profile=profile)
+    return response(session, message_text + (f" {question.text}" if question else " Your Tax Profile is complete."), profile=profile, reconciliation_warnings=warnings)
 
 
 @router.post("/document-candidate", response_model=OnboardingSessionResponse)

@@ -2,6 +2,7 @@ from io import BytesIO
 from decimal import Decimal
 
 import pytest
+import fitz
 from reportlab.pdfgen.canvas import Canvas
 
 from documents.extractor import process_pdf
@@ -232,6 +233,21 @@ def test_full_profile_import_reads_scalar_and_repeating_profile_sheets():
     assert values["capital_gains"][0]["sale_consideration"] == "150000"
 
 
+def test_empty_profile_import_template_does_not_extract_template_instructions():
+    output = BytesIO()
+    workbook = Workbook()
+    sheet = workbook.active
+    sheet.title = "TaxWise Profile Import"
+    sheet.append(["TaxWise Profile Import"])
+    sheet.append(["Fill only applicable facts in column B."])
+    sheet.append(["Profile field", "Your value", "What to enter"])
+    workbook.save(output)
+
+    result = process_spreadsheet(output.getvalue())
+
+    assert result.candidates == []
+
+
 @pytest.mark.parametrize(
     ("field", "value", "error"),
     [
@@ -282,5 +298,43 @@ def test_scanned_pdf_uses_ocr_fallback(monkeypatch):
     canvas.showPage()
     canvas.save()
 
-    monkeypatch.setattr("documents.pdf_extractor.pytesseract.image_to_string", lambda image: "Employee Name: OCR User")
+    monkeypatch.setattr(
+        "documents.pdf_extractor.pytesseract.image_to_string",
+        lambda image, config=None: "Employee Name: OCR User",
+    )
     assert extract_pdf_pages(output.getvalue()) == ["Employee Name: OCR User"]
+
+def test_mixed_text_and_scanned_pdf_keeps_both_pages(monkeypatch):
+    pdf = fitz.open()
+    text_page = pdf.new_page()
+    text_page.insert_text((72, 72), "Form 16 Salary 840000")
+
+    scanned_source = fitz.open()
+    source_page = scanned_source.new_page()
+    source_page.insert_text((72, 72), "Scanned TDS 32000")
+    pixmap = source_page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+    image_bytes = pixmap.tobytes("png")
+    scanned_source.close()
+
+    scanned_page_doc = fitz.open()
+    scanned_page = scanned_page_doc.new_page()
+    scanned_page.insert_image(scanned_page.rect, stream=image_bytes)
+    pdf.insert_pdf(scanned_page_doc)
+    scanned_page_doc.close()
+
+    content = pdf.tobytes()
+    pdf.close()
+
+    monkeypatch.setattr(
+        "documents.pdf_extractor.pytesseract.image_to_string",
+        lambda image, config=None: "Scanned TDS 32000",
+    )
+    pages = extract_pdf_pages(content)
+    assert len(pages) == 2
+    assert "Form 16 Salary 840000" in pages[0]
+    assert "Scanned TDS 32000" in pages[1]
+
+
+def test_invalid_excel_is_rejected():
+    with pytest.raises(ValueError, match="INVALID_SPREADSHEET"):
+        process_spreadsheet(b"this is not an xlsx workbook")

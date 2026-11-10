@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/router';
-import { documentsAPI, onboardingAPI, taxProfileAPI } from '@/lib/api';
+import { documentsAPI, factsAPI, taxProfileAPI } from '@/lib/api';
 import { getProfileCompletion } from '@/lib/profile-completion';
 import { useAuthStore } from '@/store/auth';
 
@@ -23,79 +23,6 @@ type TaxDocument = {
     onboarding_values?: Record<string, any>;
     error?: string;
   };
-};
-
-const numberValue = (value: string) => {
-  const parsed = Number(value.replace(/[₹,\s]/g, ''));
-  if (!Number.isFinite(parsed) || parsed < 0) throw new Error('Enter a valid non-negative number.');
-  return parsed;
-};
-
-const buildConfirmedValues = (document: TaxDocument, candidates: Candidate[]) => {
-  const values = JSON.parse(JSON.stringify(document.processing_result?.onboarding_values || {})) as Record<string, any>;
-  const profileImport = candidates.find((candidate) => candidate.field === 'profile_import');
-  if (profileImport) {
-    let imported: unknown;
-    try {
-      imported = JSON.parse(profileImport.value);
-    } catch {
-      throw new Error('The profile workbook data must be valid JSON. Correct it or re-upload the original workbook.');
-    }
-    if (!imported || typeof imported !== 'object' || Array.isArray(imported)) {
-      throw new Error('The profile workbook data must be a JSON object.');
-    }
-    return imported as Record<string, any>;
-  }
-  const salary = Array.isArray(values.salary_income) ? values.salary_income[0] : null;
-  const deductionBySection: Record<string, string> = {
-    deduction_80C: '80C',
-    deduction_80D: '80D',
-    deduction_80CCD_1B: '80CCD(1B)',
-    deduction_80G: '80G',
-  };
-
-  for (const candidate of candidates) {
-    if (['salary_income', 'tds', 'business_receipts', 'business_net_income', 'other_income_interest', 'other_income_dividend', ...Object.keys(deductionBySection), 'advance_tax'].includes(candidate.field)) {
-      const amount = numberValue(candidate.value);
-      if (candidate.field === 'salary_income') {
-        if (salary) salary.gross_salary = amount;
-      } else if (candidate.field === 'tds') {
-        values.salary_tds = amount;
-        if (salary) salary.tds = amount;
-        const payments = Array.isArray(values.taxes_paid) ? values.taxes_paid : [];
-        values.taxes_paid = [...payments.filter((payment: any) => payment.tax_type !== 'tds'), { tax_type: 'tds', amount }];
-      } else if (candidate.field === 'business_receipts') {
-        if (values.business_income?.[0]) values.business_income[0].gross_receipts = amount;
-      } else if (candidate.field === 'business_expenses') {
-        if (values.business_income?.[0]) values.business_income[0].expenses = amount;
-      } else if (candidate.field === 'business_net_income') {
-        if (values.business_income?.[0]) values.business_income[0].net_profit_or_loss = amount;
-      } else if (candidate.field === 'other_income_interest' || candidate.field === 'other_income_dividend') {
-        const incomeType = candidate.field.endsWith('interest') ? 'interest' : 'dividend';
-        const item = values.other_income?.find((income: any) => income.income_type === incomeType);
-        if (item) item.amount = amount;
-      } else if (deductionBySection[candidate.field]) {
-        const section = deductionBySection[candidate.field];
-        const item = values.deductions?.find((deduction: any) => deduction.section === section);
-        if (item) item.amount = amount;
-      } else if (candidate.field === 'advance_tax') {
-        const payments = Array.isArray(values.taxes_paid) ? values.taxes_paid : [];
-        values.taxes_paid = [...payments.filter((payment: any) => payment.tax_type !== 'advance_tax'), { tax_type: 'advance_tax', amount }];
-      }
-      continue;
-    }
-
-    if (candidate.field === 'name') {
-      values.name = candidate.value;
-    } else if (candidate.field === 'employer_name') {
-      values.employer_name = candidate.value;
-      if (salary) salary.employer_name = candidate.value;
-    } else if (candidate.field === 'pan_number' || candidate.field === 'date_of_birth') {
-      values[candidate.field] = candidate.value;
-    }
-  }
-
-  return values;
 };
 
 const DocumentReviewPage: React.FC = () => {
@@ -164,33 +91,28 @@ const DocumentReviewPage: React.FC = () => {
   const canReview = status === 'REQUIRES_CONFIRMATION' && candidates.length > 0;
   const extracted = useMemo(() => candidates.filter((item) => item.value.trim()), [candidates]);
 
-  const updateCandidate = (index: number, value: string) => {
-    setCandidates((current) => current.map((candidate, itemIndex) => itemIndex === index ? { ...candidate, value } : candidate));
-  };
-
   const confirm = async (action: 'confirm' | 'reject') => {
     if (!document) return;
     setSaving(true);
     setError('');
     setNotice('');
     try {
-      const values = buildConfirmedValues(document, action === 'confirm' ? candidates : document.processing_result?.candidates || []);
+      const response = await factsAPI.resolveDocument(document.id, action);
       if (action === 'confirm') {
         try {
-          await taxProfileAPI.getCurrentUser();
+          const profile = await taxProfileAPI.getCurrentUser();
+          setProfileNeedsCompletion(!getProfileCompletion(profile.data).minimumReady);
         } catch (profileError: any) {
           if (profileError?.response?.status !== 404) throw profileError;
-          values.residential_status = '';
-          values.employment_type = '';
+          setProfileNeedsCompletion(true);
         }
       }
-      await onboardingAPI.documentCandidate(values, document.id);
-      const response = await onboardingAPI.confirm(action);
-      setDocument({ ...document, status: action === 'confirm' ? 'CONFIRMED' : 'REJECTED' });
+      setDocument({ ...document, status: response.data.status });
       setNotice(action === 'confirm'
-        ? 'Your reviewed values were confirmed and added to your Tax Profile.'
-        : 'These extracted values were rejected and were not added to your Tax Profile.');
-      if (action === 'confirm') setProfileNeedsCompletion(!getProfileCompletion(response.data.profile).minimumReady);
+        ? response.data.conflicts?.length
+          ? 'Non-conflicting facts were confirmed. Resolve the flagged conflicts in the Tax Profile fact workspace before using them.'
+          : 'Your confirmed facts were projected into your Tax Profile for existing calculations and return preparation.'
+        : 'These extracted facts were rejected and were not added to your Tax Profile.');
     } catch (reviewError: any) {
       const detail = reviewError?.response?.data?.detail;
       setError(typeof detail === 'string' ? detail : 'TaxWise could not complete the document review. Please try again.');
@@ -230,7 +152,7 @@ const DocumentReviewPage: React.FC = () => {
           </section>
 
           <section className="card p-5" aria-label="Extracted information">
-            <div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Extracted information</h2><p className="mt-1 text-sm text-[#64748B]">Check and edit each value before confirming it.</p></div><span className="chip">{document?.status.replace(/_/g, ' ')}</span></div>
+            <div className="flex items-start justify-between gap-3"><div><h2 className="text-lg font-semibold">Extracted information</h2><p className="mt-1 text-sm text-[#64748B]">Review each value and its evidence. Confirmed facts update your profile projection.</p></div><span className="chip">{document?.status.replace(/_/g, ' ')}</span></div>
             {extracted.length === 0 ? (
               <div className="mt-5 rounded-xl bg-[#F8FAFC] p-5 text-sm text-[#64748B]">No supported fields were extracted from this document. Add the information manually or upload a different file.</div>
             ) : (
@@ -239,8 +161,8 @@ const DocumentReviewPage: React.FC = () => {
                   <label key={`${candidate.field}-${index}`} className="block rounded-xl border border-[#E2E8F0] p-4">
                     <span className="flex items-center justify-between gap-2 text-sm font-semibold capitalize"><span>{candidate.field.replace(/_/g, ' ')}</span>{candidate.confidence && <span className="text-xs font-normal text-[#64748B]">Confidence: {candidate.confidence}</span>}</span>
                     {candidate.field === 'profile_import'
-                      ? <textarea value={candidate.value} onChange={(event) => updateCandidate(index, event.target.value)} disabled={!canReview || saving} rows={12} spellCheck={false} className="mt-2 w-full rounded-lg border border-[#CBD5E1] px-3 py-2 font-mono text-xs disabled:bg-[#F8FAFC]" aria-label="Review and edit imported profile data" />
-                      : <input value={candidate.value} onChange={(event) => updateCandidate(index, event.target.value)} disabled={!canReview || saving} className="mt-2 w-full rounded-lg border border-[#CBD5E1] px-3 py-2 text-sm disabled:bg-[#F8FAFC]" aria-label={`Edit ${candidate.field.replace(/_/g, ' ')}`} />}
+                      ? <pre className="mt-2 max-h-80 overflow-auto rounded-lg bg-[#F8FAFC] p-3 font-mono text-xs">{candidate.value}</pre>
+                      : <p className="mt-2 break-all rounded-lg bg-[#F8FAFC] px-3 py-2 text-sm">{candidate.value}</p>}
                     <span className="mt-2 block text-xs text-[#64748B]">{candidate.source || `Extracted from ${document?.document_type.replace(/_/g, ' ')}`}{candidate.page ? ` · Page ${candidate.page}` : ''} · Document-extracted, awaiting confirmation</span>
                   </label>
                 ))}

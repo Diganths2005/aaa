@@ -3,6 +3,12 @@ import { AuthStore, User } from '@/types';
 import { authAPI } from '@/lib/api';
 import Cookies from 'js-cookie';
 
+const tokenCookieOptions = {
+  path: '/',
+  sameSite: 'strict' as const,
+  secure: process.env.NODE_ENV === 'production',
+};
+
 export const useAuthStore = create<AuthStore>((set) => ({
   user: null,
   token: null,
@@ -21,7 +27,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const response = await authAPI.login(email, password);
       const { access_token, user } = response.data;
       
-      Cookies.set('token', access_token);
+      Cookies.set('token', access_token, tokenCookieOptions);
       set({
         token: access_token,
         user,
@@ -43,7 +49,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
       const response = await authAPI.signup(email, firstName, lastName, password);
       const { access_token, user } = response.data;
       
-      Cookies.set('token', access_token);
+      Cookies.set('token', access_token, tokenCookieOptions);
       set({
         token: access_token,
         user,
@@ -60,7 +66,7 @@ export const useAuthStore = create<AuthStore>((set) => ({
   },
 
   logout: () => {
-    Cookies.remove('token');
+    Cookies.remove('token', { path: '/' });
     set({
       user: null,
       token: null,

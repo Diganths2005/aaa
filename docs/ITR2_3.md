@@ -16,7 +16,21 @@ This is not a completed ITR-3 filing package. Business books, expense categoriza
 
 ## Future Work
 
-The following require separate implementation and verification before they can be described as supported:
+The current preparation scope is:
+
+- ITR-1: supported for the deterministic eligibility rules already implemented.
+- ITR-2: supported preparation summary for profiles whose non-business complexity is covered by the TaxWise capital-gains engine. Foreign schedules, speculative income, and persistent loss schedules remain explicitly unsupported.
+- ITR-4: supported preparation summary for validated resident presumptive 44AD/44ADA/44AE business entries, subject to the implemented eligibility checks.
+- ITR-3: supported review summary for non-negative user-entered business/professional net profit.
+
+The following remain outside the current preparation scope:
+
+- Full statutory ITR-3 books, expense/depreciation calculations, and business-loss history.
+- Full foreign-income and foreign-asset schedules.
+- Every government-form field and every statutory validation rule beyond the supported profile/calculation model.
+- Official government-form export, filing, e-verification, and acknowledgement handling.
+
+The application must not present a review summary as an official filed return.
 
 - Complete statutory ITR-2 and ITR-4 schedules and form-specific validation.
 - Full ITR-3 schedules, books, expense/depreciation calculations, and business-loss history.

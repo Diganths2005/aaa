@@ -1,12 +1,13 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { useRouter } from 'next/router';
 import { useAuthStore } from '@/store/auth';
-import { documentsAPI, onboardingAPI, taxProfileAPI } from '@/lib/api';
+import { documentsAPI, taxProfileAPI } from '@/lib/api';
 import { TaxProfile } from '@/types';
 import ReturnToDashboard from '@/components/ReturnToDashboard';
+import FactReadinessPanel from '@/components/FactReadinessPanel';
 import { getProfileCompletion } from '@/lib/profile-completion';
 
-const inputClass = 'w-full rounded-md border border-gray-300 px-3 py-2 text-sm';
+const inputClass = 'mt-1.5 w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-900 shadow-sm transition focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/20';
 const apiErrorMessage = (error: any, fallback: string) => {
   const detail = error?.response?.data?.detail;
   if (typeof detail === 'string') return detail;
@@ -32,13 +33,9 @@ const TaxProfilePage: React.FC = () => {
   const [files, setFiles] = useState<Array<{ id: string; name: string }>>([]);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [assistantInput, setAssistantInput] = useState('');
-  const [assistantMessages, setAssistantMessages] = useState<string[]>([]);
-  const [proposal, setProposal] = useState<{ salary?: number; tds?: number } | null>(null);
   const [documentProcessing, setDocumentProcessing] = useState(false);
   const [progress, setProgress] = useState({ completed: 0, total: 16, percent: 0 });
   const hydrated = useRef(false);
-  const assistantFileInput = useRef<HTMLInputElement>(null);
 
   useEffect(() => { if (!isAuthenticated) router.push('/login'); }, [isAuthenticated, router]);
   useEffect(() => {
@@ -63,15 +60,6 @@ const TaxProfilePage: React.FC = () => {
   }, [router.isReady, router.query.section]);
   useEffect(() => {
     if (!isAuthenticated) return;
-    onboardingAPI.getSession().then((response) => {
-      setAssistantMessages([response.data.assistant_message]);
-      setProgress(response.data.progress);
-      if (response.data.profile) {
-        setFormData({ ...blankProfile, ...response.data.profile });
-        hydrated.current = true;
-      }
-    }).catch(() => setAssistantMessages(['Hi! I\'ll help you complete your Tax Profile.']))
-      .finally(() => { hydrated.current = true; });
     taxProfileAPI.getCurrentUser().then((response) => {
       setFormData({ ...blankProfile, ...response.data });
       const status = getProfileCompletion(response.data);
@@ -122,10 +110,11 @@ const TaxProfilePage: React.FC = () => {
       const uploaded = await documentsAPI.upload(file, formData.assessment_year);
       const processed = await documentsAPI.process(uploaded.data.id);
       setFiles((current) => [...current, { id: uploaded.data.id, name: file.name }]);
-      saveAssistantMessage(processed.data.candidates.length
-        ? `Extracted values from ${file.name}. Review and confirm or reject them on the Documents page.`
-        : `${file.name} was processed, but no supported tax fields were found.`);
-      if (processed.data.candidates.length) await router.push('/documents');
+      if (processed.data.candidates.length) {
+        await router.push('/documents');
+        return;
+      }
+      setError(`${file.name} was processed, but no supported tax fields were found.`);
     } catch (uploadError: any) {
       const detail = uploadError.response?.data?.detail;
       setError(detail === 'DOCUMENT_REQUIRES_OCR'
@@ -159,7 +148,6 @@ const TaxProfilePage: React.FC = () => {
       const status = getProfileCompletion(response.data);
       setProgress({ completed: Math.round(status.percent / 10), total: 10, percent: status.percent });
       hydrated.current = true;
-      setAssistantMessages((current) => [...current, 'Your profile is saved. You can keep editing it here.']);
     } catch (err: any) {
       setError(apiErrorMessage(err, 'Could not save your tax profile. Complete the required fields in the section you added.'));
     } finally {
@@ -170,45 +158,10 @@ const TaxProfilePage: React.FC = () => {
     event.preventDefault();
     await saveProfile();
   };
-  const saveAssistantMessage = (message: string) => setAssistantMessages((current) => [...current, message]);
-  const sendAssistantMessage = async () => {
-    const question = assistantInput.trim();
-    if (!question) return;
-    saveAssistantMessage(`You: ${question}`);
-    setAssistantInput('');
-    try {
-      const response = await onboardingAPI.sendMessage(question);
-      setAssistantMessages((current) => [...current, response.data.assistant_message]);
-      setProgress(response.data.progress);
-      if (response.data.requires_confirmation) {
-        const values = response.data.candidate_values;
-        setProposal({ salary: values.salary_income?.[0]?.gross_salary ?? undefined, tds: values.salary_tds ?? undefined });
-      }
-    } catch (err: any) {
-      setError(apiErrorMessage(err, 'The assistant could not process that answer.'));
-    }
-  };
-  const confirmProposal = async () => {
-    try {
-      const response = await onboardingAPI.confirm('confirm');
-      setAssistantMessages((current) => [...current, response.data.assistant_message]);
-      setProgress(response.data.progress);
-      if (response.data.profile) setFormData({ ...blankProfile, ...response.data.profile });
-      setProposal(null);
-    } catch (err: any) {
-      setError(apiErrorMessage(err, 'Could not save the proposed profile update.'));
-      return;
-    }
-    setProposal(null);
-  };
-  const rejectProposal = async () => {
-    await onboardingAPI.confirm('reject');
-    setProposal(null);
-    saveAssistantMessage('No changes made. Let\'s continue with the next question.');
-  };
   const steps = ['About you', 'Residence & return', 'Income sources', 'Deductions', 'Taxes & banks', 'Documents'];
   const returnFlags: [string, string][] = [['is_senior_citizen','Senior citizen'],['is_director','Company director'],['has_unlisted_equity','Unlisted shares'],['has_foreign_assets','Foreign assets'],['has_foreign_income','Foreign income'],['has_business_income','Business or professional income'],['has_speculative_income','Speculative income'],['has_carry_forward_loss','Loss to carry forward']];
   const capitalGainFields = [
+    { name: 'asset_identifier', label: 'Security or property identifier' },
     { name: 'asset_type', label: 'Asset type', options: [
       { value: 'listed_equity_share', label: 'Listed equity share' },
       { value: 'equity_oriented_mutual_fund', label: 'Equity-oriented mutual fund' },
@@ -218,6 +171,8 @@ const TaxProfilePage: React.FC = () => {
     ] },
     { name: 'acquisition_date', label: 'Acquisition date', type: 'date' },
     { name: 'sale_date', label: 'Sale date', type: 'date' },
+    { name: 'holding_period', label: 'Source-reported holding period' },
+    { name: 'gain_type', label: 'Source-reported gain type' },
     { name: 'sale_consideration', label: 'Sale consideration', type: 'number' },
     { name: 'acquisition_cost', label: 'Acquisition cost', type: 'number' },
     { name: 'improvement_cost', label: 'Improvement cost', type: 'number' },
@@ -231,7 +186,11 @@ const TaxProfilePage: React.FC = () => {
   ];
   const field = (name: string, label: string, type = 'text') => <label className="block text-sm text-gray-700">{label}<input className={inputClass} name={name} type={type} value={(formData as any)[name] ?? ''} onChange={update} /></label>;
   const listEditor = (key: keyof TaxProfile, title: string, addLabel: string, onAdd: () => void, fields: { name: string; label: string; type?: string; options?: { value: string | boolean; label: string }[] }[]) => {
-    const visibleFields = key === 'capital_gains' ? capitalGainFields : fields;
+    const visibleFields = key === 'capital_gains'
+      ? capitalGainFields
+      : key === 'deductions'
+        ? [...fields, { name: 'donation_reference', label: '80G donation reference' }, { name: 'donation_ifsc', label: 'Donee bank IFSC' }]
+        : fields;
     return (
       <section className="space-y-3">
         <div className="flex items-center justify-between">
@@ -258,36 +217,7 @@ const TaxProfilePage: React.FC = () => {
     );
   };
 
-  const handleAssistantFile = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    event.target.value = '';
-    if (!file) return;
-    setDocumentProcessing(true);
-    try {
-      setError('');
-      saveAssistantMessage(`File selected: ${file.name}. Uploading and processing...`);
-      const uploaded = await documentsAPI.upload(file, formData.assessment_year);
-      const processed = await documentsAPI.process(uploaded.data.id);
-      const candidateSummary = processed.data.candidates.map((candidate: { field: string; value: string }) => `${candidate.field.replace('deduction_', '')}: ${candidate.value}`).join(' | ');
-      if (processed.data.candidates.length) {
-        saveAssistantMessage('I found candidate values. Review and confirm or reject them on the Documents page before they update your Tax Profile.');
-        if (candidateSummary) saveAssistantMessage(candidateSummary);
-        await router.push('/documents');
-        return;
-      }
-      saveAssistantMessage(`${file.name} was processed, but no supported tax fields were found. You can continue chatting or fill the profile manually.`);
-    } catch (err: any) {
-      const detail = err.response?.data?.detail;
-      const message = detail === 'DOCUMENT_REQUIRES_OCR'
-        ? 'No text was found and OCR could not run on this server. Upload a text-based PDF or enter the information manually.'
-        : apiErrorMessage(err, 'I couldn\'t upload or process this file. You can continue manually.');
-      saveAssistantMessage(message);
-    } finally {
-      setDocumentProcessing(false);
-    }
-  };
-
-  return <div className="min-h-screen bg-gray-100 px-4 py-6 lg:px-6"><div className="mx-auto max-w-7xl"><header className="mb-6"><div className="flex flex-wrap items-center justify-between gap-3"><div><p className="text-sm font-semibold uppercase tracking-wide text-primary">TaxWise profile workspace</p><h1 className="mt-2 text-3xl font-bold text-gray-900">Your AY 2026-27 tax profile</h1><p className="mt-2 text-gray-600">Only information you enter or explicitly confirm is used for your personal tax calculations.</p></div><div className="flex gap-2"><ReturnToDashboard /><a href="/taxpayer-profile" className="rounded-md border bg-white px-3 py-2 text-sm font-medium">Cancel</a></div></div><div className="mt-4 h-2 overflow-hidden rounded-full bg-gray-200"><div className="h-full bg-primary transition-all" style={{ width: `${progress.percent}%` }} /></div><p className="mt-1 text-xs text-gray-500">Profile completion: {progress.percent}%</p><div className="mt-3 flex flex-wrap gap-2 text-xs"><span className="chip">User-provided / confirmed fields</span><span className="chip">Document-extracted values require review</span><span className="chip">Engine-calculated results appear in Tax Calculation</span><span className="chip">AI suggestions are not saved automatically</span></div></header><div className="grid items-start gap-6 lg:grid-cols-[1.22fr_1fr]"><section className="min-w-0 lg:max-h-[calc(100vh-150px)] lg:overflow-y-auto lg:pr-2"><div className="mb-6 grid grid-cols-3 gap-2 sm:grid-cols-6">{steps.map((name, index) => <button type="button" key={name} onClick={() => setStep(index + 1)} className={`border-b-4 px-1 py-2 text-xs ${step === index + 1 ? 'border-primary font-semibold text-primary' : 'border-gray-300 text-gray-500'}`}>{index + 1}. {name}</button>)}</div><form onSubmit={submit} className="space-y-6 rounded-lg bg-white p-6 shadow">
+  return <div className="page-shell"><div className="page-container"><header className="mb-8"><div className="flex flex-wrap items-center justify-between gap-4"><div><p className="section-kicker">TaxWise profile workspace</p><h1 className="mt-2 text-3xl font-bold tracking-tight text-slate-950 sm:text-4xl">Your AY 2026-27 tax profile</h1><p className="mt-2 max-w-3xl text-sm leading-6 text-slate-500">Only information you enter or explicitly confirm is used for your personal tax calculations.</p></div><div className="flex flex-wrap gap-2"><ReturnToDashboard /><a href="/taxpayer-profile" className="rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm font-semibold text-slate-700 shadow-sm hover:bg-slate-50">Cancel</a></div></div><div className="mt-5 h-2.5 overflow-hidden rounded-full bg-slate-200"><div className="h-full rounded-full bg-emerald-500 transition-all" style={{ width: `${progress.percent}%` }} /></div><div className="mt-2 flex items-center justify-between"><p className="text-xs font-medium text-slate-500">Profile completion</p><p className="text-xs font-semibold text-emerald-700">{progress.percent}%</p></div><div className="mt-4 flex flex-wrap gap-2 text-xs"><span className="chip">User-provided / confirmed</span><span className="chip">Documents require review</span><span className="chip">Engine results stay separate</span></div></header><div className="space-y-6"><FactReadinessPanel /><section className="min-w-0"><div className="mb-5 grid grid-cols-3 gap-2 sm:grid-cols-6">{steps.map((name, index) => <button type="button" key={name} onClick={() => setStep(index + 1)} className={`rounded-xl border px-2.5 py-2.5 text-xs font-medium transition-all ${step === index + 1 ? 'border-emerald-200 bg-emerald-50 font-semibold text-emerald-800 shadow-sm' : 'border-slate-200 bg-white text-slate-500 hover:border-slate-300 hover:text-slate-700'}`}><span className="mr-1">{index + 1}.</span>{name}</button>)}</div><form onSubmit={submit} className="surface-panel space-y-6 p-5 sm:p-7">
     {error && <p className="rounded bg-red-50 p-3 text-sm text-red-700">{error}</p>}
     {step === 1 && <div className="space-y-4"><h2 className="text-xl font-semibold">About you</h2><div className="grid gap-4 sm:grid-cols-2">{field('date_of_birth', 'Date of birth', 'date')}{field('pan_number', 'PAN (10 characters)')}{field('citizenship', 'Citizenship')}{field('nationality', 'Nationality')}{field('pincode', 'PIN code')}{field('city', 'City')}</div>{field('address', 'Residential address')}<div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Gender<select className={inputClass} name="gender" value={formData.gender || ''} onChange={update}><option value="">Choose</option><option>male</option><option>female</option><option>other</option></select></label><label className="text-sm text-gray-700">Marital status<select className={inputClass} name="marital_status" value={formData.marital_status || ''} onChange={update}><option value="">Choose</option><option>single</option><option>married</option><option>divorced</option><option>widowed</option></select></label></div></div>}
     {step === 2 && <div className="space-y-4"><h2 className="text-xl font-semibold">Residence and return details</h2><p className="text-sm text-gray-600">Choose these values explicitly. TaxWise does not assume a residency, employment situation, or return eligibility flag.</p><div className="grid gap-4 sm:grid-cols-2"><label className="text-sm text-gray-700">Residential status<select className={inputClass} name="residential_status" value={formData.residential_status} onChange={update}><option value="">Select residential status</option><option value="resident">Resident</option><option value="non_resident">Non-resident</option><option value="nri">NRI</option></select></label><label className="text-sm text-gray-700">Work situation<select className={inputClass} name="employment_type" value={formData.employment_type} onChange={update}><option value="">Select work situation</option><option value="salaried">Salaried</option><option value="self_employed">Self-employed</option><option value="both">Both</option><option value="none">Not working</option></select></label>{field('employer_name', 'Employer or organisation')}{field('assessment_year', 'Assessment year')}</div><div className="grid gap-3 sm:grid-cols-2">{returnFlags.map(([name, label]) => <label key={name} className="block text-sm text-gray-700">{label}<select className={inputClass} name={name} value={(formData as any)[name] === undefined ? '' : String((formData as any)[name])} onChange={update}><option value="">Select Yes or No</option><option value="true">Yes</option><option value="false">No</option></select></label>)}</div></div>}
@@ -296,6 +226,6 @@ const TaxProfilePage: React.FC = () => {
     {step === 5 && <div className="space-y-6"><h2 className="text-xl font-semibold">Taxes paid and bank accounts</h2><p className="text-sm text-gray-600">Bank details are used for refund processing. Account numbers are masked in API responses.</p>{listEditor('taxes_paid','TDS, advance tax and self-assessment tax','tax payment',addTax,[{name:'tax_type',label:'Payment type'},{name:'amount',label:'Amount',type:'number'},{name:'reference',label:'Challan or reference'}])}{listEditor('bank_accounts','Bank accounts','account',addBank,[{name:'bank_name',label:'Bank name'},{name:'account_number',label:'Account number'},{name:'ifsc_code',label:'IFSC code'}])}</div>}
     {step === 6 && <div className="space-y-4"><h2 className="text-xl font-semibold">Your documents</h2><p className="text-sm text-gray-600">Upload a PDF or Excel workbook. TaxWise does not fetch documents from the Income Tax Department or your bank.</p><input type="file" accept="application/pdf,.xlsx,.xlsm" onChange={handleFiles} disabled={documentProcessing} className="block w-full text-sm" />{files.length > 0 && <ul className="space-y-2 text-sm text-gray-700">{files.map((file, index) => <li key={file.id} className="flex items-center justify-between gap-3 rounded border border-gray-200 px-3 py-2"><span className="truncate">{file.name}</span><button type="button" onClick={() => removeFile(index)} className="shrink-0 text-xs font-medium text-red-600">Remove</button></li>)}</ul>}</div>}
     <div className="flex flex-wrap items-center justify-between gap-3 border-t pt-6"><button type="button" disabled={step === 1} onClick={() => setStep(step - 1)} className="rounded-md border px-4 py-2 text-sm disabled:opacity-40">Previous</button><div className="flex gap-2"><button type="submit" disabled={saving} className="rounded-md border border-primary px-4 py-2 text-sm font-medium text-primary disabled:opacity-50">{saving ? 'Saving...' : 'Save progress'}</button>{step < 6 && <button type="button" onClick={() => setStep(step + 1)} className="rounded-md bg-primary px-4 py-2 text-sm text-white">Next</button>}</div></div>
-  </form></section><aside className="flex min-h-[520px] flex-col rounded-lg bg-slate-900 p-5 text-white shadow lg:sticky lg:top-6 lg:max-h-[calc(100vh-48px)]"><div className="border-b border-slate-700 pb-4"><p className="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">TaxWise assistant</p><h2 className="mt-2 text-2xl font-semibold">Let’s fill this together</h2><p className="mt-2 text-sm text-slate-300">I can propose profile updates for your review. I do not calculate tax.</p></div><div className="flex-1 space-y-3 overflow-y-auto py-5" aria-live="polite">{assistantMessages.map((message, index) => <p key={`${message}-${index}`} className={`max-w-[92%] rounded-lg px-3 py-2 text-sm ${message.startsWith('You:') ? 'ml-auto bg-cyan-400 text-slate-950' : 'bg-slate-800 text-slate-200'}`}>{message}</p>)}{proposal && <div className="rounded-lg border border-cyan-400/50 bg-slate-800 p-4 text-sm"><p className="font-semibold text-cyan-300">Proposed profile update</p>{proposal.salary !== undefined && <p className="mt-2">Salary: ₹{proposal.salary.toLocaleString('en-IN')}</p>}{proposal.tds !== undefined && <p>TDS: ₹{proposal.tds.toLocaleString('en-IN')}</p>}<div className="mt-4 flex gap-2"><button type="button" onClick={confirmProposal} className="rounded-md bg-cyan-400 px-3 py-2 font-medium text-slate-950">Add to profile</button><button type="button" onClick={() => setProposal(null)} className="rounded-md border border-slate-500 px-3 py-2">Review first</button></div></div>}</div><div className="border-t border-slate-700 pt-4"><div className="flex gap-2"><input value={assistantInput} onChange={(event) => setAssistantInput(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') sendAssistantMessage(); }} placeholder="Ask a question or describe your tax details..." className="min-w-0 flex-1 rounded-md border-0 bg-white px-3 py-2 text-sm text-slate-900" /><button type="button" onClick={sendAssistantMessage} className="rounded-md bg-cyan-400 px-4 py-2 text-sm font-semibold text-slate-950">Send</button></div><div className="mt-3 flex flex-wrap items-center gap-3"><input ref={assistantFileInput} type="file" accept="application/pdf,.xlsx,.xlsm" className="hidden" aria-label="Choose a tax document to attach" onChange={handleAssistantFile} disabled={documentProcessing} /><button type="button" onClick={() => assistantFileInput.current?.click()} disabled={documentProcessing} className="inline-flex items-center gap-2 rounded-md border border-slate-500 px-3 py-2 text-sm font-medium text-slate-100 hover:bg-slate-800 disabled:cursor-wait disabled:opacity-60"><span aria-hidden="true">+</span>{documentProcessing ? 'Uploading...' : 'Attach tax document'}</button><span className="text-xs text-slate-400">{documentProcessing ? 'Processing your file...' : 'PDF or Excel (.xlsx, .xlsm)'}</span></div></div></aside></div></div></div>;
+  </form></section></div></div></div>;
 };
 export default TaxProfilePage;

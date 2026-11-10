@@ -97,6 +97,11 @@ def calculate_transaction(item: CapitalGain) -> CapitalGainResult:
     computed_gain = sale - gain_cost(item, holding, section) - item.improvement_cost - item.transfer_expenses
     return CapitalGainResult(
         asset_type=item.asset_type,
+        asset_identifier=item.asset_identifier,
+        acquisition_date=item.acquisition_date.isoformat() if item.acquisition_date else None,
+        sale_date=item.sale_date.isoformat() if item.sale_date else None,
+        source_reported_holding_period=item.holding_period,
+        source_reported_gain_type=item.gain_type,
         holding_period=holding,
         sale_consideration=sale,
         acquisition_cost=required_amount(item.acquisition_cost, "acquisition cost"),

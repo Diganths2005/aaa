@@ -1,30 +1,30 @@
 from datetime import date, datetime
 from decimal import Decimal
 import re
-from typing import List, Literal, Optional
+from typing import Annotated, List, Literal, Optional
 
 from pydantic import AliasChoices, BaseModel, ConfigDict, Field, field_serializer, field_validator, model_validator
 
-Money = Decimal
+Money = Annotated[Decimal, Field(max_digits=18, decimal_places=2)]
 
 class SalaryIncome(BaseModel):
     employer_name: str = Field(min_length=1, max_length=200)
     gross_salary: Money = Field(ge=0)
-    standard_deduction: Money = Field(default=0, ge=0)
-    professional_tax: Money = Field(default=0, ge=0)
-    tds: Money = Field(default=0, ge=0)
+    standard_deduction: Money = Field(default=Decimal("0"), ge=0)
+    professional_tax: Money = Field(default=Decimal("0"), ge=0)
+    tds: Money = Field(default=Decimal("0"), ge=0)
 
 class PensionIncome(BaseModel):
     payer_name: str = Field(min_length=1, max_length=200)
     amount: Money = Field(ge=0)
-    tds: Money = Field(default=0, ge=0)
+    tds: Money = Field(default=Decimal("0"), ge=0)
 
 class HouseProperty(BaseModel):
     property_type: Literal["self_occupied", "let_out", "deemed_let_out"]
     city: str = Field(min_length=1, max_length=100)
-    annual_rent: Money = Field(default=0, ge=0)
-    municipal_tax: Money = Field(default=0, ge=0)
-    home_loan_interest: Money = Field(default=0, ge=0)
+    annual_rent: Money = Field(default=Decimal("0"), ge=0)
+    municipal_tax: Money = Field(default=Decimal("0"), ge=0)
+    home_loan_interest: Money = Field(default=Decimal("0"), ge=0)
     ownership_share: Decimal = Field(default=Decimal("100"), ge=0, le=100)
     loan_purpose: Optional[Literal["purchase_or_construction", "repair"]] = None
     loan_sanction_date: Optional[str] = None
@@ -34,17 +34,20 @@ class OtherIncome(BaseModel):
     income_type: Literal["interest", "dividend", "family_pension", "other"]
     description: str = Field(min_length=1, max_length=200)
     amount: Money = Field(ge=0)
-    tds: Money = Field(default=0, ge=0)
+    tds: Money = Field(default=Decimal("0"), ge=0)
 
 class CapitalGain(BaseModel):
     # `asset_type` stays open so the engine can return a structured unsupported-asset error.
     asset_type: str = Field(min_length=1, max_length=50)
+    asset_identifier: Optional[str] = Field(default=None, max_length=200)
     acquisition_date: Optional[date] = None
     sale_date: Optional[date] = None
+    holding_period: Optional[str] = Field(default=None, max_length=40)
+    gain_type: Optional[str] = Field(default=None, max_length=40)
     sale_consideration: Optional[Money] = Field(default=None, ge=0, validation_alias=AliasChoices("sale_consideration", "sale_value"))
     acquisition_cost: Optional[Money] = Field(default=None, ge=0, validation_alias=AliasChoices("acquisition_cost", "cost_of_acquisition"))
     improvement_cost: Money = Field(default=Decimal("0"), ge=0)
-    transfer_expenses: Money = Field(default=0, ge=0)
+    transfer_expenses: Money = Field(default=Decimal("0"), ge=0)
     quantity: Optional[Decimal] = Field(default=None, ge=0)
     is_listed: Optional[bool] = None
     is_equity_oriented: Optional[bool] = None
@@ -88,6 +91,8 @@ class Deduction(BaseModel):
     basic_salary: Money = Field(default=Decimal("0"), ge=0)
     dearness_allowance_for_retirement: Money = Field(default=Decimal("0"), ge=0)
     donation_category: Optional[Literal["100_no_limit", "50_no_limit", "100_qualifying_limit", "50_qualifying_limit"]] = None
+    donation_reference: Optional[str] = Field(default=None, max_length=100)
+    donation_ifsc: Optional[str] = Field(default=None, max_length=11)
     qualifying_limit: Money = Field(default=Decimal("0"), ge=0)
     specified_disease: Optional[bool] = None
     reimbursement_amount: Money = Field(default=Decimal("0"), ge=0)
@@ -113,6 +118,15 @@ class Deduction(BaseModel):
     owns_residential_property_at_residence_or_work: Optional[bool] = None
     loan_from_financial_institution: Optional[bool] = None
     section_24b_limit_exhausted: Optional[bool] = None
+
+    @field_validator("donation_ifsc")
+    @classmethod
+    def valid_donation_ifsc(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            value = value.upper().strip()
+            if not re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", value):
+                raise ValueError("Donation IFSC must contain 11 characters in the format ABCD0123456")
+        return value
 
 class TaxPayment(BaseModel):
     tax_type: Literal["tds", "advance_tax", "self_assessment"]
@@ -179,6 +193,19 @@ class TaxProfileCreate(BaseModel):
     taxes_paid: List[TaxPayment] = Field(default_factory=list)
     bank_accounts: List[BankAccount] = Field(default_factory=list)
     documents: List[DocumentReference] = Field(default_factory=list)
+
+    @field_validator("date_of_birth")
+    @classmethod
+    def valid_date_of_birth(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return value
+        try:
+            parsed = date.fromisoformat(value)
+        except ValueError as error:
+            raise ValueError("Date of birth must use YYYY-MM-DD") from error
+        if parsed > date(2026, 3, 31):
+            raise ValueError("Date of birth cannot be after the end of FY 2025-26")
+        return parsed.isoformat()
 
     @field_validator("pan_number")
     @classmethod

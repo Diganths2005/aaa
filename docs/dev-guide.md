@@ -1,6 +1,6 @@
 # Developer and Architecture Guide
 
-TaxWise is a Next.js/TypeScript frontend backed by FastAPI, SQLAlchemy, and a deterministic Python tax engine. The active rule package covers AY 2026-27. `backend/main.py` registers authenticated profile, onboarding, document, deduction, chat, and return routes alongside the tax and what-if APIs.
+TaxWise is a Next.js/TypeScript frontend backed by FastAPI, SQLAlchemy, and a deterministic Python tax engine. The active rule package covers AY 2026-27. `backend/main.py` registers authenticated profile, fact, legacy onboarding, document, deduction, chat, and return routes alongside the tax and what-if APIs.
 
 ## Active Architecture
 
@@ -19,8 +19,9 @@ flowchart TD
     Facts --> Explain[Explanation]
     KB --> Explain
     Documents[PDF / Excel] --> Extract[Text and Field Extraction]
-    Extract --> Review[Confirm or Reject]
-    Review --> Profile[Tax Profile]
+    Extract --> Facts[Persisted Facts and Evidence]
+    Facts --> Review[Per-fact Review and Conflict Resolution]
+    Review --> Profile[Tax Profile Projection]
     Profile --> Engine
 ```
 
@@ -31,9 +32,10 @@ Return selection can identify ITR-1/2/3/4 families. Preparation is supported for
 ### Fully implemented paths
 
 - JWT authentication and authenticated tax-profile create/read/update/delete operations.
+- Owner-scoped taxpayer facts and evidence, per-fact conflict resolution, readiness reporting, and a validated Tax Profile projection for existing ITR and tax-engine consumers. The onboarding UI is deprecated; its API remains for compatibility.
 - Decimal-based AY 2026-27 tax calculation, old/new regime comparison, validation, rebate, surcharge, cess, rounding, and tax-payment reconciliation for the supported calculation inputs.
-- Text extraction from PDFs, optional Tesseract OCR fallback when the executable is installed, and extraction from supported Excel workbooks. Extracted values are candidates, not profile facts.
-- User-confirmed or rejected document candidates, with the review result stored on the document and confirmed values merged into the profile.
+- Text extraction from PDFs, optional Tesseract OCR fallback when the executable is installed, and extraction from supported Excel workbooks. Candidate facts and source evidence are persisted before review.
+- User-confirmed, rejected, kept, accepted, or corrected facts, with resolution statuses and evidence retained and confirmed mapped values projected into the profile.
 - General return-family selection with reasons, missing information, and unsupported conditions; ITR-1 preparation and a constrained ITR-3 business-income review summary with review-only PDF generation.
 
 ### Partially implemented paths
@@ -52,7 +54,8 @@ Return selection can identify ITR-1/2/3/4 families. Preparation is supported for
 
 - `backend/routes/` — HTTP validation, authentication dependencies, and response mapping.
 - `backend/services/knowledge.py` — versioned local tax-note retrieval for chat.
-- `backend/services/onboarding.py` — conversational profile collection and candidate-state rules.
+- `backend/services/fact_store.py` and `backend/services/document_projection.py` — fact normalization, source reconciliation, evidence, readiness, and Tax Profile projection.
+- `backend/services/onboarding.py` — legacy conversational profile collection and candidate-state rules; kept for backend compatibility.
 - `backend/documents/` — PDF/Excel extraction and field candidates.
 - `backend/itr/` — return selection, ITR-1 and limited ITR-3 preparation summaries, and PDF output.
 - `backend/tax_engine/` — calculation logic and assessment-year rule packages. Monetary arithmetic remains `Decimal`-based.
@@ -68,7 +71,7 @@ Return selection can identify ITR-1/2/3/4 families. Preparation is supported for
 
 ## Tests and Checks
 
-Backend tests are in `backend/tests/` and cover tax calculations, API behavior, chat, knowledge lookup, extraction, document review, and return selection/preparation boundaries.
+Backend tests are in `backend/tests/` and cover tax calculations, API behavior, chat, knowledge lookup, extraction, fact persistence/reconciliation/resolution, document review, and return selection/preparation boundaries.
 
 ```powershell
 cd backend

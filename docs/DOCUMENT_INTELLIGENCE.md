@@ -8,13 +8,13 @@ Document extraction and chat retrieval are separate workflows. Chat can retrieve
 Authenticated PDF / Excel upload
         -> local temporary file storage
         -> PDF text extraction / optional OCR / workbook text extraction
-        -> field candidates
-        -> user review on the Documents page
-        -> Confirm or Reject
-        -> confirmed values update the Tax Profile
+        -> field candidates and persistent facts/evidence
+        -> document-level confirm/reject and per-fact review in Tax Profile
+        -> Confirm, Reject, Keep, Accept, or Correct
+        -> confirmed facts update the Tax Profile projection
 ```
 
-The profile is not changed during upload or extraction. Confirmed fields are validated by the profile schema before persistence. Rejected candidates leave the profile unchanged. The document record stores `CONFIRMED` or `REJECTED` so reviewed candidates are not presented again as pending.
+Extraction persists candidate facts with source, confidence, mapping status, assessment year, and evidence references. Upload and extraction do not change the Tax Profile. The per-fact review endpoint validates confirmed or corrected mapped facts before updating the profile projection. Rejected candidates do not change it. Unknown candidate keys are retained as `raw.*` facts rather than discarded.
 
 ### Implemented behavior
 
@@ -24,10 +24,13 @@ The profile is not changed during upload or extraction. Confirmed fields are val
 - Excel workbooks are read with `openpyxl` and passed through the same field-candidate rules.
 - The `TaxWise Profile Import` sheet in `TaxWise_App_Import_Template.xlsx` maps scalar fields to the Tax Profile schema; each collection tab uses one row per profile record. Only populated cells are imported. Unknown or duplicate field names and values that fail schema validation are rejected. The older `TaxWise Import Data` label/value sheet remains supported for backward compatibility.
 - The workbook covers the TaxWise profile's scalar fields and record collections: salary, pension, house property, other income, capital gains, business income, foreign income/assets, investments, deductions, tax payments, bank accounts, and document metadata. It imports TaxWise profile data, not a complete official ITR-3 return or every government return schedule.
-- The document review screen lets the user edit the imported profile JSON before confirming it. Values are schema-validated and saved only after explicit confirmation. Existing profile fields not supplied in the workbook are retained; populated collection tabs replace that collection when confirmed.
+- The document review screen confirms/rejects the extracted document's non-conflicting facts as a batch. Same-value observations from independent high-confidence source types can agree automatically; disagreement with a confirmed fact is marked as a conflict. The Tax Profile fact workspace lets the user keep the confirmed value, accept a conflicting candidate, correct it, or reject an unconfirmed fact.
+- Profile import facts are flattened into grouped field-level facts for review while the original import payload and unknown fields remain available as evidence.
+- `/api/v1/facts/` lists the authenticated user's facts, `/api/v1/facts/reconciliation` groups candidate values by key and source, `/api/v1/facts/readiness` reports missing, confirmed, pending, and conflicting requirements, and `/api/v1/facts/determination` combines readiness with the existing ITR selector. These endpoints are scoped to the owner and assessment year.
+- TaxProfile remains the validated compatibility projection consumed by ITR selection and the deterministic tax engine; the fact store does not replace those components.
 - The workbook includes sensitive identifiers and financial information. Keep the completed file private and review its extracted data before confirming.
 - `/documents` lists only the authenticated user's records. Deletion is owner-scoped and removes the temporary file.
-- The onboarding candidate endpoint checks ownership and pending status when given a document ID; confirmation and rejection update that document's status.
+- Legacy onboarding candidate and confirmation endpoints remain for existing clients. New document review uses `/api/v1/facts/documents/{document_id}/resolve` or `/api/v1/facts/{fact_id}/resolve`.
 - Extracted page text is split into bounded overlapping passages and stored separately for private chat retrieval. Queries are scoped to the authenticated owner and assessment year; rejected, failed, deleted, and unprocessed documents are excluded. Rejecting or deleting a document removes its indexed passages.
 - Document lookup answers quote matching passages and cite the filename and page. Private passages are not sent to a hosted language-model provider, and extracted document values do not affect tax calculations until confirmed in the profile.
 - The shared reference corpus consists of checked-in, reviewed, assessment-year-scoped knowledge notes. User uploads are never promoted into the shared corpus.
@@ -36,9 +39,9 @@ The profile is not changed during upload or extraction. Confirmed fields are val
 
 - OCR requires a working Tesseract executable on the server. Installing the Python `pytesseract` package alone is insufficient. If OCR cannot run, the API returns `DOCUMENT_REQUIRES_OCR`; users can upload a text-based document or enter values manually.
 - Field detection for ordinary documents uses explicit text-label patterns. It is not a general-purpose document classifier, and extracted candidates may be incomplete or wrong. The structured profile workbook instead relies on exact schema field names.
-- Review confirms or rejects the mapped candidate set as a whole; edits are available before confirmation, not as separate per-field save actions.
+- Readiness is an initial dynamic report over stored facts, not a complete statutory requirement engine. Return selection and unsupported-schedule behavior continue to come from the existing deterministic ITR selector.
 - Files are stored under the operating system's temporary directory. Replace this with protected persistent storage and define retention/encryption before production use.
-- Upload processing is synchronous. Background jobs, document viewing, OCR quality measurement, and automatic document-to-profile reconciliation are not implemented.
+- Upload processing is synchronous. Background jobs, document viewing, OCR quality measurement, automatic tax-rule inference, and full statutory schedule validation are not implemented.
 
 ## Structured Tax Knowledge Base
 
@@ -54,6 +57,7 @@ The calculation engine remains authoritative for taxable income, tax, rebate, su
 
 - `backend/tests/test_document_extraction.py` covers PDF/Excel field extraction, workbook schema validation, money parsing, and OCR fallback behavior.
 - `backend/tests/test_document_api.py` covers upload, ownership, confirmation, rejection, and profile effects, including the full-profile workbook.
+- `backend/tests/test_fact_store.py` covers extraction persistence, unknown-fact retention, cross-source agreement, conflict resolution, projection protection, readiness, and owner isolation.
 - `backend/tests/test_knowledge.py` covers assessment-year-scoped hybrid retrieval and passage chunking.
 - `backend/tests/test_document_api.py` covers upload ownership, private retrieval, and index cleanup on deletion.
 - `backend/tests/test_chat_api.py` covers chat sources, unsupported questions, and deterministic fallback on provider or knowledge lookup failure.
