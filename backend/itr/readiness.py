@@ -198,16 +198,16 @@ def build_return_readiness(profile: TaxProfileCreate) -> dict[str, Any]:
     # remain visible instead of being converted into invented zeros.
     document_types = {document.document_type for document in profile.documents}
     if profile.salary_income:
-        items.append(_item("doc.form16", "Documents", "Salary evidence / Form 16", True, "form_16" in document_types,
+        items.append(_item("doc.form16", "Documents", "Salary evidence / Form 16", False, "form_16" in document_types,
                             "ITR-2 guidance lists Form 16 for salary income."))
     if profile.other_income and any(item.tds > 0 for item in profile.other_income):
-        items.append(_item("doc.form16a", "Documents", "TDS evidence for non-salary income", True, "form_26as" in document_types or "other" in document_types,
+        items.append(_item("doc.form16a", "Documents", "TDS evidence for non-salary income", False, "form_26as" in document_types or "other" in document_types,
                             "ITR-2 guidance calls for Form 16A where TDS is deducted on interest."))
     if profile.capital_gains:
-        items.append(_item("doc.capital_gains", "Documents", "Capital-gains statement/evidence", True, "investment" in document_types or "other" in document_types,
+        items.append(_item("doc.capital_gains", "Documents", "Capital-gains statement/evidence", False, "investment" in document_types or "other" in document_types,
                             "ITR-2 guidance calls for a capital-gains summary/profit-loss statement."))
     if profile.house_properties and any(p.property_type in {"let_out", "deemed_let_out"} for p in profile.house_properties):
-        items.append(_item("doc.house_property", "Documents", "House-property supporting evidence", True, "other" in document_types,
+        items.append(_item("doc.house_property", "Documents", "House-property supporting evidence", False, "other" in document_types,
                             "ITR-2 guidance calls for rent, local-tax and borrowed-capital details where applicable."))
 
     required = [item for item in items if item.required]
@@ -222,6 +222,7 @@ def build_return_readiness(profile: TaxProfileCreate) -> dict[str, Any]:
     else:
         status = "incomplete"
 
+    evidence_items = [item for item in items if item.section == "Documents"]
     return {
         "assessment_year": profile.assessment_year,
         "recommended_itr": selection.recommended_itr,
@@ -234,6 +235,10 @@ def build_return_readiness(profile: TaxProfileCreate) -> dict[str, Any]:
         "missing": [
             {"key": item.key, "section": item.section, "label": item.label, "reason": item.reason}
             for item in missing
+        ],
+        "evidence": [
+            {"key": item.key, "label": item.label, "available": item.complete, "reason": item.reason}
+            for item in evidence_items
         ],
         "selection_reasons": selection.reasons,
         "unsupported_conditions": selection.unsupported_conditions,
