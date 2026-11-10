@@ -192,6 +192,21 @@ def build_return_readiness(profile: TaxProfileCreate) -> dict[str, Any]:
                     payment.amount >= 0,
                 )
             )
+    elif profile.salary_income or profile.pension_income or profile.other_income:
+        recorded_tds = sum(
+            (item.tds for item in (*profile.salary_income, *profile.pension_income, *profile.other_income)),
+            Decimal("0"),
+        )
+        items.append(
+            _item(
+                "tax.tds_confirmation",
+                "Taxes & banks",
+                "TDS / tax-payment information",
+                True,
+                recorded_tds > 0,
+                "Enter tax payments or explicitly confirm that no TDS/tax payment applies.",
+            )
+        )
 
     # Document readiness follows the same idea as itr-agent's filing checklist:
     # the return can be prepared from confirmed data, but missing evidence should
