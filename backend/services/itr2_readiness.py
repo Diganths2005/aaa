@@ -104,6 +104,8 @@ def itr2_requirements(profile: dict[str, Any]) -> list[Requirement]:
         if item.get("section") == "80G":
             req.append(Requirement(f"{prefix}.donation_category", f"80G claim #{index}: donation category", "Deductions"))
             req.append(Requirement(f"{prefix}.donation_mode", f"80G claim #{index}: payment mode", "Deductions"))
+            req.append(Requirement(f"{prefix}.donation_reference", f"80G claim #{index}: transaction reference", "Deductions"))
+            req.append(Requirement(f"{prefix}.donation_ifsc_code", f"80G claim #{index}: bank IFSC", "Deductions"))
 
     if profile.get("taxes_paid"):
         for index, item in enumerate(profile["taxes_paid"], 1):
