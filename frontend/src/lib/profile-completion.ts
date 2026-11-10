@@ -166,8 +166,7 @@ export const getProfileCompletion = (
     profile.pan_number?.trim() &&
     profile.residential_status &&
     profile.employment_type &&
-    hasIncome &&
-    has('bank_accounts'),
+    hasIncome,
   );
 
   return {
