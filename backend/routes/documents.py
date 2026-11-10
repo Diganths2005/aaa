@@ -335,11 +335,11 @@ def _onboarding_values(candidates: list[dict]) -> dict:
     if taxes_paid:
         values["taxes_paid"] = taxes_paid
 
-    if candidate_values.get("bank_name") or candidate_values.get("account_number") or candidate_values.get("ifsc_code"):
+    if all(candidate_values.get(field) for field in ("bank_name", "account_number", "ifsc_code")):
         values["bank_accounts"] = [{
-            "bank_name": candidate_values.get("bank_name") or "Document bank",
-            "account_number": candidate_values.get("account_number") or "0000",
-            "ifsc_code": candidate_values.get("ifsc_code") or "HDFC0001234",
+            "bank_name": candidate_values["bank_name"],
+            "account_number": candidate_values["account_number"],
+            "ifsc_code": candidate_values["ifsc_code"],
             "account_type": str(candidate_values.get("account_type") or "savings").lower().replace(" ", "_"),
             "is_primary": str(candidate_values.get("refund_account", "yes")).lower() == "yes",
         }]
