@@ -231,23 +231,26 @@ def process_document(
 
 
 def _onboarding_values(candidates: list[dict]) -> dict:
-    values = {}
-    profile_import = next((item["value"] for item in candidates if item["field"] == "profile_import"), None)
+    values: dict = {}
+    by_field: dict[str, list[dict]] = {}
+    for item in candidates:
+        by_field.setdefault(item["field"], []).append(item)
+
+    candidate_values = {item["field"]: item["value"] for item in candidates}
+    profile_import = candidate_values.get("profile_import")
     if profile_import is not None:
         return json.loads(profile_import)
 
-    candidate_values = {item["field"]: item["value"] for item in candidates}
     employer = candidate_values.get("employer_name")
     salary = candidate_values.get("salary_income")
-    salary_item = None
     if salary is not None:
-        salary_item = {"employer_name": employer or "Document employer", "gross_salary": salary}
-        if candidate_values.get("standard_deduction") is not None:
-            salary_item["standard_deduction"] = candidate_values["standard_deduction"]
-        if candidate_values.get("professional_tax") is not None:
-            salary_item["professional_tax"] = candidate_values["professional_tax"]
-        if candidate_values.get("tds") is not None:
-            salary_item["tds"] = candidate_values["tds"]
+        salary_item = {
+            "employer_name": employer or "Document employer",
+            "gross_salary": salary,
+            "standard_deduction": candidate_values.get("standard_deduction", 0),
+            "professional_tax": candidate_values.get("professional_tax", 0),
+            "tds": candidate_values.get("tds", 0),
+        }
         values["salary_income"] = [salary_item]
 
     if candidate_values.get("pension_income") is not None:
@@ -259,15 +262,30 @@ def _onboarding_values(candidates: list[dict]) -> dict:
 
     other_income = []
     if candidate_values.get("other_income_interest") is not None:
-        other_income.append({"income_type": "interest", "description": "Bank interest", "amount": candidate_values["other_income_interest"]})
+        other_income.append({
+            "income_type": "interest",
+            "description": "Bank interest",
+            "amount": candidate_values["other_income_interest"],
+            "tds": 0,
+        })
     if candidate_values.get("other_income_dividend") is not None:
-        other_income.append({"income_type": "dividend", "description": "Dividend income", "amount": candidate_values["other_income_dividend"]})
+        other_income.append({
+            "income_type": "dividend",
+            "description": "Dividend income",
+            "amount": candidate_values["other_income_dividend"],
+            "tds": 0,
+        })
     if candidate_values.get("other_income_family_pension") is not None:
-        other_income.append({"income_type": "family_pension", "description": "Family pension", "amount": candidate_values["other_income_family_pension"]})
+        other_income.append({
+            "income_type": "family_pension",
+            "description": "Family pension",
+            "amount": candidate_values["other_income_family_pension"],
+            "tds": candidate_values.get("tds", 0),
+        })
     if other_income:
         values["other_income"] = other_income
 
-    if candidate_values.get("house_property_rent") is not None or candidate_values.get("house_property_municipal_tax") is not None or candidate_values.get("house_property_loan_interest") is not None:
+    if any(field in candidate_values for field in ("house_property_rent", "house_property_municipal_tax", "house_property_loan_interest")):
         values["house_properties"] = [{
             "property_type": "let_out" if candidate_values.get("house_property_rent") is not None else "self_occupied",
             "city": candidate_values.get("city") or "Document property",
@@ -276,6 +294,19 @@ def _onboarding_values(candidates: list[dict]) -> dict:
             "home_loan_interest": candidate_values.get("house_property_loan_interest", 0),
             "ownership_share": 100,
         }]
+
+    capital_gains = []
+    for field, items in by_field.items():
+        if not field.startswith("capital_gain_transaction_"):
+            continue
+        for item in items:
+            transaction = dict(item["value"])
+            transaction.pop("transaction_number", None)
+            transaction = {key: value for key, value in transaction.items() if value is not None}
+            if transaction.get("asset_type"):
+                capital_gains.append(transaction)
+    if capital_gains:
+        values["capital_gains"] = capital_gains
 
     if candidate_values.get("business_net_income") is not None:
         values["business_income"] = [{
@@ -304,9 +335,29 @@ def _onboarding_values(candidates: list[dict]) -> dict:
     if taxes_paid:
         values["taxes_paid"] = taxes_paid
 
-    for field, profile_field in (("pan_number", "pan_number"), ("date_of_birth", "date_of_birth"), ("name", "name"), ("address", "address"), ("employer_name", "employer_name")):
+    if candidate_values.get("bank_name") or candidate_values.get("account_number") or candidate_values.get("ifsc_code"):
+        values["bank_accounts"] = [{
+            "bank_name": candidate_values.get("bank_name") or "Document bank",
+            "account_number": candidate_values.get("account_number") or "0000",
+            "ifsc_code": candidate_values.get("ifsc_code") or "HDFC0001234",
+            "account_type": str(candidate_values.get("account_type") or "savings").lower().replace(" ", "_"),
+            "is_primary": str(candidate_values.get("refund_account", "yes")).lower() == "yes",
+        }]
+
+    if candidate_values.get("foreign_country") or candidate_values.get("foreign_income") is not None:
+        values["has_foreign_assets"] = True
+        values["has_foreign_income"] = candidate_values.get("foreign_income") is not None
+        foreign_item = {
+            "country": candidate_values.get("foreign_country") or "Unknown",
+            "item_type": "income" if candidate_values.get("foreign_income") is not None else "bank_account",
+            "description": candidate_values.get("foreign_asset_type") or "Foreign asset/income",
+            "value": candidate_values.get("foreign_income", candidate_values.get("foreign_maximum_balance", 0)),
+        }
+        values["foreign_income_assets"] = [foreign_item]
+
+    for field in ("pan_number", "date_of_birth", "address", "residential_status", "citizenship", "nationality", "employer_name"):
         if candidate_values.get(field) is not None:
-            values[profile_field] = candidate_values[field]
+            values[field] = candidate_values[field]
 
     return jsonable_encoder(values)
 
