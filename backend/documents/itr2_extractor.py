@@ -61,6 +61,7 @@ def extract_itr2_candidates(pages: list[str], source: str = "ITR2_DOCUMENT") -> 
         "foreign_country": (r"(?:Foreign\s+)?Country\s*[:|]\s*([^\n|]+)",),
         "foreign_asset_type": (r"(?:Foreign\s+)?Asset\s+Type\s*[:|]\s*([^\n|]+)",),
         "donation_reference": (r"(?:Donation\s+)?(?:Transaction\s+)?Reference\s*[:|]\s*([^\n|]+)",),
+        "donation_ifsc_code": (r"(?:Donation\s+)?(?:Bank\s+)?IFSC(?:\s+Code)?\s*[:|]\s*([A-Z0-9]+)",),
     }
     for field, patterns in text_fields.items():
         match, page = _first(patterns, text)
