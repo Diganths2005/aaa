@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from database import get_db
 from itr.pdf import generate_return_pdf
+from itr.readiness import build_return_readiness
 from itr.service import check_itr1_eligibility, explain_itr_question, prepare_itr1, prepare_return, select_return
 from models.tax_profile import TaxProfile
 from models.user import User
@@ -31,6 +32,13 @@ def itr1_eligibility(current_user: User = Depends(get_current_user), db: Session
 def itr_selection(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     _, profile = current_profile(current_user, db)
     return select_return(profile).__dict__
+
+
+@router.get("/readiness")
+def itr_readiness(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Return-family-aware completeness and missing-information checklist."""
+    _, profile = current_profile(current_user, db)
+    return build_return_readiness(profile)
 
 
 @router.post("/prepare")
