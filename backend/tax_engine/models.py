@@ -34,6 +34,11 @@ class TaxCalculationInput(BaseModel):
 
 class CapitalGainResult(BaseModel):
     asset_type: str
+    asset_identifier: Optional[str] = None
+    acquisition_date: Optional[str] = None
+    sale_date: Optional[str] = None
+    source_reported_holding_period: Optional[str] = None
+    source_reported_gain_type: Optional[str] = None
     holding_period: Literal["short_term", "long_term"]
     sale_consideration: Decimal
     acquisition_cost: Decimal

@@ -17,6 +17,7 @@ from schemas.onboarding import DocumentCandidateRequest, OnboardingConfirmReques
 from schemas.tax_profile import TaxProfileCreate, TaxProfileResponse
 from services.onboarding import apply_candidate, initial_state, next_question, parse_answer, progress, start_state
 from services.profile_service import ProfileService
+from services.fact_store import facts_for_document, record_profile_facts
 from utils.common import generate_id
 
 router = APIRouter(prefix="/onboarding", tags=["onboarding"])
@@ -148,6 +149,7 @@ def persist_candidate(session: OnboardingSession, candidate: Dict[str, Any], cur
             detail="A tax profile with this PAN already exists. Please use a different PAN or update the existing profile.",
         ) from exc
     session.profile_id = saved.id
+    record_profile_facts(db, current_user.id, validated)
     return saved
 
 
@@ -185,12 +187,18 @@ def confirm(request: OnboardingConfirmRequest, current_user: User = Depends(get_
         session.state = apply_candidate(state, candidate, "confirm")
         message_text = "Confirmed. I updated your Tax Profile."
         if document:
+            for fact in facts_for_document(db, current_user.id, document.id):
+                if fact.status in {"EXTRACTED", "NEEDS_CONFIRMATION"}:
+                    fact.status = "CONFIRMED"
             document.status = "CONFIRMED"
     else:
         profile = db.query(TaxProfile).filter(TaxProfile.id == session.profile_id).first() if session.profile_id else None
         session.state = apply_candidate(state, candidate, "reject")
         message_text = "No changes made. Let's continue with the next question."
         if document:
+            for fact in facts_for_document(db, current_user.id, document.id):
+                if fact.status not in {"CONFIRMED", "SUPERSEDED"}:
+                    fact.status = "REJECTED"
             document.status = "REJECTED"
             db.query(UserDocumentChunk).filter(
                 UserDocumentChunk.document_id == document.id

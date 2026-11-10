@@ -1,10 +1,8 @@
-import json
 from pathlib import Path
 from zipfile import ZipFile, BadZipFile
 from io import BytesIO
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile, status
-from fastapi.encoders import jsonable_encoder
 from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
@@ -12,11 +10,14 @@ from database import get_db
 from documents.extractor import process_pdf
 from documents.spreadsheet_extractor import process_spreadsheet
 from models.document import UserDocument, UserDocumentChunk
+from models.taxpayer_fact import TaxpayerFact, TaxpayerFactEvidence
 from models.user import User
 from routes.auth import get_current_user
 from schemas.document import DocumentCreate, DocumentResponse, DocumentType, SUPPORTED_DOCUMENT_EXTENSIONS
 from services.knowledge import chunk_text
 from services.document_storage import DocumentStorage
+from services.document_projection import apply_fact_projection, candidate_to_profile
+from services.fact_store import facts_for_document, persist_extracted_candidates
 from utils.common import generate_id
 
 router = APIRouter(prefix="/documents", tags=["documents"])
@@ -156,6 +157,7 @@ def process_document(
             "page_count": document.page_count,
             "candidates": result_data.get("candidates", []),
             "onboarding_values": result_data.get("onboarding_values", {}),
+            "facts": [fact.id for fact in facts_for_document(db, current_user.id, document.id)],
         }
 
     document.status = "PROCESSING"
@@ -169,6 +171,18 @@ def process_document(
         result = process_pdf(content, document.document_type) if storage_path.suffix.lower() == ".pdf" else process_spreadsheet(content)
         candidates = [candidate.as_dict() for candidate in result.candidates]
         onboarding_values = _onboarding_values(candidates)
+        assessment_year = document.assessment_year or "2026-27"
+        facts = persist_extracted_candidates(
+            db,
+            user_id=current_user.id,
+            assessment_year=assessment_year,
+            document_id=document.id,
+            candidates=candidates,
+            extracted_text=result.text,
+        )
+        for fact in facts:
+            if fact.status == "CONFIRMED" and fact.mapping_status == "MAPPED":
+                apply_fact_projection(db, current_user.id, fact.fact_key, fact.value, fact.group_id)
         extracted_pages = result.text.split("\f") if storage_path.suffix.lower() == ".pdf" else [result.text]
         db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
         chunks = []
@@ -190,6 +204,7 @@ def process_document(
             "document_type": result.document_type,
             "candidates": candidates,
             "onboarding_values": onboarding_values,
+            "fact_ids": [fact.id for fact in facts],
         }
         db.commit()
         return {
@@ -198,10 +213,24 @@ def process_document(
             "page_count": result.page_count,
             "candidates": candidates,
             "onboarding_values": onboarding_values,
+            "facts": [fact.id for fact in facts],
         }
     except ValueError as exc:
         db.rollback()
         db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
+        fact_ids = [fact.id for fact in db.query(TaxpayerFact.id).filter(
+            TaxpayerFact.user_id == current_user.id,
+            TaxpayerFact.document_id == document.id,
+        ).all()]
+        if fact_ids:
+            db.query(TaxpayerFactEvidence).filter(
+                TaxpayerFactEvidence.user_id == current_user.id,
+                TaxpayerFactEvidence.fact_id.in_(fact_ids),
+            ).delete(synchronize_session=False)
+            db.query(TaxpayerFact).filter(
+                TaxpayerFact.user_id == current_user.id,
+                TaxpayerFact.id.in_(fact_ids),
+            ).delete(synchronize_session=False)
         document = db.query(UserDocument).filter(
             UserDocument.id == document_id,
             UserDocument.user_id == current_user.id,
@@ -231,84 +260,7 @@ def process_document(
 
 
 def _onboarding_values(candidates: list[dict]) -> dict:
-    values = {}
-    profile_import = next((item["value"] for item in candidates if item["field"] == "profile_import"), None)
-    if profile_import is not None:
-        return json.loads(profile_import)
-
-    candidate_values = {item["field"]: item["value"] for item in candidates}
-    employer = candidate_values.get("employer_name")
-    salary = candidate_values.get("salary_income")
-    salary_item = None
-    if salary is not None:
-        salary_item = {"employer_name": employer or "Document employer", "gross_salary": salary}
-        if candidate_values.get("standard_deduction") is not None:
-            salary_item["standard_deduction"] = candidate_values["standard_deduction"]
-        if candidate_values.get("professional_tax") is not None:
-            salary_item["professional_tax"] = candidate_values["professional_tax"]
-        if candidate_values.get("tds") is not None:
-            salary_item["tds"] = candidate_values["tds"]
-        values["salary_income"] = [salary_item]
-
-    if candidate_values.get("pension_income") is not None:
-        values["pension_income"] = [{
-            "payer_name": employer or "Document pension payer",
-            "amount": candidate_values["pension_income"],
-            "tds": candidate_values.get("tds", 0),
-        }]
-
-    other_income = []
-    if candidate_values.get("other_income_interest") is not None:
-        other_income.append({"income_type": "interest", "description": "Bank interest", "amount": candidate_values["other_income_interest"]})
-    if candidate_values.get("other_income_dividend") is not None:
-        other_income.append({"income_type": "dividend", "description": "Dividend income", "amount": candidate_values["other_income_dividend"]})
-    if candidate_values.get("other_income_family_pension") is not None:
-        other_income.append({"income_type": "family_pension", "description": "Family pension", "amount": candidate_values["other_income_family_pension"]})
-    if other_income:
-        values["other_income"] = other_income
-
-    if candidate_values.get("house_property_rent") is not None or candidate_values.get("house_property_municipal_tax") is not None or candidate_values.get("house_property_loan_interest") is not None:
-        values["house_properties"] = [{
-            "property_type": "let_out" if candidate_values.get("house_property_rent") is not None else "self_occupied",
-            "city": candidate_values.get("city") or "Document property",
-            "annual_rent": candidate_values.get("house_property_rent", 0),
-            "municipal_tax": candidate_values.get("house_property_municipal_tax", 0),
-            "home_loan_interest": candidate_values.get("house_property_loan_interest", 0),
-            "ownership_share": 100,
-        }]
-
-    if candidate_values.get("business_net_income") is not None:
-        values["business_income"] = [{
-            "business_name": "Professional income",
-            "nature_of_business": "Professional services",
-            "gross_receipts": candidate_values.get("business_receipts", candidate_values["business_net_income"]),
-            "net_profit_or_loss": candidate_values["business_net_income"],
-        }]
-
-    deductions = []
-    for field, section in (
-        ("deduction_80C", "80C"), ("deduction_80D", "80D"), ("deduction_80CCD_1B", "80CCD(1B)"),
-        ("deduction_80G", "80G"), ("deduction_80E", "80E"), ("deduction_80EE", "80EE"),
-        ("deduction_80EEA", "80EEA"), ("deduction_80GG", "80GG"), ("deduction_80U", "80U"),
-        ("deduction_80DD", "80DD"), ("deduction_80DDB", "80DDB"),
-    ):
-        if candidate_values.get(field) is not None:
-            deductions.append({"section": section, "amount": candidate_values[field]})
-    if deductions:
-        values["deductions"] = deductions
-
-    taxes_paid = []
-    for field, tax_type in (("tds", "tds"), ("advance_tax", "advance_tax"), ("self_assessment_tax", "self_assessment")):
-        if candidate_values.get(field) is not None:
-            taxes_paid.append({"tax_type": tax_type, "amount": candidate_values[field]})
-    if taxes_paid:
-        values["taxes_paid"] = taxes_paid
-
-    for field, profile_field in (("pan_number", "pan_number"), ("date_of_birth", "date_of_birth"), ("name", "name"), ("address", "address"), ("employer_name", "employer_name")):
-        if candidate_values.get(field) is not None:
-            values[profile_field] = candidate_values[field]
-
-    return jsonable_encoder(values)
+    return candidate_to_profile(candidates)
 
 @router.get("/", response_model=list[DocumentResponse])
 def list_documents(
@@ -359,6 +311,22 @@ def delete_document(
     if not document:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Document not found")
     db.query(UserDocumentChunk).filter(UserDocumentChunk.document_id == document.id).delete(synchronize_session=False)
+    fact_ids = [
+        row[0]
+        for row in db.query(TaxpayerFact.id).filter(
+            TaxpayerFact.user_id == current_user.id,
+            TaxpayerFact.document_id == document.id,
+        ).all()
+    ]
+    if fact_ids:
+        db.query(TaxpayerFactEvidence).filter(
+            TaxpayerFactEvidence.user_id == current_user.id,
+            TaxpayerFactEvidence.fact_id.in_(fact_ids),
+        ).delete(synchronize_session=False)
+        db.query(TaxpayerFact).filter(
+            TaxpayerFact.user_id == current_user.id,
+            TaxpayerFact.id.in_(fact_ids),
+        ).delete(synchronize_session=False)
     db.delete(document)
     if document.storage_key:
         try:

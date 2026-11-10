@@ -350,6 +350,13 @@ def test_excel_upload_process_and_list_preserves_extracted_values():
     assert processed.status_code == 200
     assert {item["field"] for item in processed.json()["candidates"]} >= {"name", "pan_number", "employer_name", "salary_income", "tds", "deduction_80C"}
 
+    facts = client.get("/api/v1/facts/", headers=headers)
+    assert facts.status_code == 200
+    salary_fact = next(item for item in facts.json() if item["fact_key"] == "income.salary.gross_salary")
+    assert salary_fact["document_id"] == document_id
+    assert salary_fact["status"] == "NEEDS_CONFIRMATION"
+    assert salary_fact["evidence"]
+
     listed = client.get("/api/v1/documents/", headers=headers)
     saved = next(item for item in listed.json() if item["id"] == document_id)
     assert saved["processing_result"]["candidates"]

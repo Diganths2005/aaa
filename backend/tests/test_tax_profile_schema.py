@@ -54,6 +54,44 @@ def test_decimal_money_precision_is_preserved():
     assert profile.salary_income[0].gross_salary == Decimal("100000.25")
 
 
+def test_capital_gain_reporting_metadata_and_80g_evidence_are_preserved():
+    profile = TaxProfileCreate(
+        capital_gains=[{
+            "asset_type": "listed_equity_share",
+            "asset_identifier": "NSE:EXAMPLE",
+            "acquisition_date": "2025-04-15",
+            "sale_date": "2025-11-20",
+            "holding_period": "short_term",
+            "gain_type": "STCG",
+            "sale_consideration": 150000,
+            "acquisition_cost": 125000,
+            "quantity": 10,
+            "is_listed": True,
+            "stt_paid_on_transfer": True,
+        }],
+        deductions=[{
+            "section": "80G",
+            "amount": 5000,
+            "donation_category": "50_no_limit",
+            "donation_mode": "non_cash",
+            "donation_reference": "RECEIPT-2026-01",
+            "donation_ifsc": "hdfc0001234",
+        }],
+    )
+    assert profile.capital_gains[0].asset_identifier == "NSE:EXAMPLE"
+    assert profile.capital_gains[0].gain_type == "STCG"
+    assert profile.deductions[0].donation_ifsc == "HDFC0001234"
+
+
+def test_invalid_donation_ifsc_is_rejected():
+    with pytest.raises(ValidationError):
+        TaxProfileCreate(deductions=[{
+            "section": "80G",
+            "amount": 1000,
+            "donation_ifsc": "INVALID",
+        }])
+
+
 def test_legitimate_business_loss_is_supported():
     profile = TaxProfileCreate(business_income=[{"business_name": "Studio", "nature_of_business": "Design", "gross_receipts": 10, "net_profit_or_loss": -2}])
     assert profile.business_income[0].net_profit_or_loss == -2

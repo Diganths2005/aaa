@@ -107,6 +107,21 @@ export const documentsAPI = {
   delete: (documentId: string) => apiClient.delete(`${API_V1_URL}/documents/${documentId}`),
 };
 
+export const factsAPI = {
+  list: (assessmentYear = '2026-27') =>
+    apiClient.get(`${API_V1_URL}/facts/`, { params: { assessment_year: assessmentYear } }),
+  reconciliation: (assessmentYear = '2026-27') =>
+    apiClient.get(`${API_V1_URL}/facts/reconciliation`, { params: { assessment_year: assessmentYear } }),
+  readiness: (assessmentYear = '2026-27') =>
+    apiClient.get(`${API_V1_URL}/facts/readiness`, { params: { assessment_year: assessmentYear } }),
+  determination: (assessmentYear = '2026-27') =>
+    apiClient.get(`${API_V1_URL}/facts/determination`, { params: { assessment_year: assessmentYear } }),
+  resolve: (factId: string, action: 'confirm' | 'reject' | 'keep' | 'accept' | 'correct', value?: unknown) =>
+    apiClient.post(`${API_V1_URL}/facts/${factId}/resolve`, { action, value }),
+  resolveDocument: (documentId: string, action: 'confirm' | 'reject') =>
+    apiClient.post(`${API_V1_URL}/facts/documents/${documentId}/resolve`, { action }),
+};
+
 export const onboardingAPI = {
   start: () => apiClient.post(`${API_V1_URL}/onboarding/session`),
   getSession: () => apiClient.get(`${API_V1_URL}/onboarding/session`),

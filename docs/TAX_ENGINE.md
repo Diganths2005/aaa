@@ -14,7 +14,7 @@ Confirmed Tax Profile
   -> income aggregation and standard deduction
   -> supported deductions
   -> ordinary taxable income and applicable slabs
-  -> supported capital-gain tax, where present
+  -> supported capital-gain tax, where present, with transaction reporting metadata retained
   -> rebate -> surcharge -> cess
   -> taxes paid -> refund or balance payable
 ```
@@ -25,7 +25,7 @@ The returned result includes gross total income, deductions, taxable income, ord
 
 - Salary, pension, supported other-source income, and supported house-property scenarios.
 - Explicit old/new regime deduction allowlists and validated deduction facts, including the implemented 80C, 80CCD, 80D, 80TTA, 80TTB, 80DD, 80DDB, 80EE/80EEA, 80G, 80GG, and education-loan-interest paths.
-- Capital-gain transactions for `listed_equity_share`, `equity_oriented_mutual_fund`, `other_security`, `immovable_property`, and `gold_or_other`. Required dates, costs, quantities, listing/STT facts, and grandfathered FMV are validated where applicable. The implementation applies its current-year loss set-off and special-rate rules from `backend/tax_engine/rules/ay_2026_27/capital_gains.py`.
+- Capital-gain transactions for `listed_equity_share`, `equity_oriented_mutual_fund`, `other_security`, `immovable_property`, and `gold_or_other`. Required dates, costs, quantities, listing/STT facts, and grandfathered FMV are validated where applicable. Transaction identifiers and source-reported holding-period/gain-type metadata are retained for review; the engine independently determines the applicable holding period and gain treatment. The implementation applies its current-year loss set-off and special-rate rules from `backend/tax_engine/rules/ay_2026_27/capital_gains.py`.
 - User-entered business/professional net profit only through the expanded calculation path. The engine does not derive business profit from books or prepare business schedules; negative business income is rejected.
 
 Foreign income and foreign-asset schedules are rejected. Unsupported assets, missing transaction facts, missing deduction facts, and unsupported assessment years return structured errors instead of guessed values.

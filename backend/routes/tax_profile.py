@@ -6,6 +6,7 @@ from models.tax_profile import TaxProfile
 from models.user import User
 from routes.auth import get_current_user
 from schemas.tax_profile import TaxProfileCreate, TaxProfileUpdate, TaxProfileResponse
+from services.fact_store import record_profile_facts
 from services.profile_service import ProfileService
 
 router = APIRouter(prefix="/tax-profiles", tags=["tax-profiles"])
@@ -23,7 +24,11 @@ def create_tax_profile(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="User already has a tax profile",
         )
-    return service.save(current_user.id, profile_data)
+    saved = service.save(current_user.id, profile_data)
+    record_profile_facts(db, current_user.id, profile_data)
+    db.commit()
+    db.refresh(saved)
+    return saved
 
 
 @router.get("/current", response_model=TaxProfileResponse)
@@ -75,7 +80,12 @@ def update_tax_profile(
     current.update(payload)
     current.pop("id", None)
     current.pop("user_id", None)
-    return service.save(current_user.id, TaxProfileCreate.model_validate(current), profile_id=profile.id)
+    updated = TaxProfileCreate.model_validate(current)
+    saved = service.save(current_user.id, updated, profile_id=profile.id)
+    record_profile_facts(db, current_user.id, updated)
+    db.commit()
+    db.refresh(saved)
+    return saved
 
 
 @router.post("/{profile_id}/documents")

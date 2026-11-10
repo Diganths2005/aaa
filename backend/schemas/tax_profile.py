@@ -39,8 +39,11 @@ class OtherIncome(BaseModel):
 class CapitalGain(BaseModel):
     # `asset_type` stays open so the engine can return a structured unsupported-asset error.
     asset_type: str = Field(min_length=1, max_length=50)
+    asset_identifier: Optional[str] = Field(default=None, max_length=200)
     acquisition_date: Optional[date] = None
     sale_date: Optional[date] = None
+    holding_period: Optional[str] = Field(default=None, max_length=40)
+    gain_type: Optional[str] = Field(default=None, max_length=40)
     sale_consideration: Optional[Money] = Field(default=None, ge=0, validation_alias=AliasChoices("sale_consideration", "sale_value"))
     acquisition_cost: Optional[Money] = Field(default=None, ge=0, validation_alias=AliasChoices("acquisition_cost", "cost_of_acquisition"))
     improvement_cost: Money = Field(default=Decimal("0"), ge=0)
@@ -88,6 +91,8 @@ class Deduction(BaseModel):
     basic_salary: Money = Field(default=Decimal("0"), ge=0)
     dearness_allowance_for_retirement: Money = Field(default=Decimal("0"), ge=0)
     donation_category: Optional[Literal["100_no_limit", "50_no_limit", "100_qualifying_limit", "50_qualifying_limit"]] = None
+    donation_reference: Optional[str] = Field(default=None, max_length=100)
+    donation_ifsc: Optional[str] = Field(default=None, max_length=11)
     qualifying_limit: Money = Field(default=Decimal("0"), ge=0)
     specified_disease: Optional[bool] = None
     reimbursement_amount: Money = Field(default=Decimal("0"), ge=0)
@@ -113,6 +118,15 @@ class Deduction(BaseModel):
     owns_residential_property_at_residence_or_work: Optional[bool] = None
     loan_from_financial_institution: Optional[bool] = None
     section_24b_limit_exhausted: Optional[bool] = None
+
+    @field_validator("donation_ifsc")
+    @classmethod
+    def valid_donation_ifsc(cls, value: Optional[str]) -> Optional[str]:
+        if value is not None:
+            value = value.upper().strip()
+            if not re.fullmatch(r"[A-Z]{4}0[A-Z0-9]{6}", value):
+                raise ValueError("Donation IFSC must contain 11 characters in the format ABCD0123456")
+        return value
 
 class TaxPayment(BaseModel):
     tax_type: Literal["tds", "advance_tax", "self_assessment"]

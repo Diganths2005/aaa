@@ -47,6 +47,62 @@ def test_selector_recommends_itr2_for_multiple_capital_gain_transactions():
     assert preparation["schedules"]["capital_gains"]
 
 
+def test_rahul_sharma_ay_2026_27_profile_keeps_transaction_provenance_and_itr2_support():
+    profile = TaxProfileCreate(
+        assessment_year="2026-27",
+        financial_year="2025-26",
+        pan_number="ABCDE1234F",
+        date_of_birth="1988-04-10",
+        residential_status="resident",
+        employment_type="salaried",
+        salary_income=[{
+            "employer_name": "Example Technologies",
+            "gross_salary": 1800000,
+            "standard_deduction": 75000,
+            "professional_tax": 2400,
+            "tds": 150000,
+        }],
+        other_income=[{
+            "income_type": "interest",
+            "description": "Savings and deposit interest",
+            "amount": 24000,
+        }],
+        capital_gains=[{
+            "asset_type": "listed_equity_share",
+            "asset_identifier": "NSE:EXAMPLE",
+            "acquisition_date": "2025-04-15",
+            "sale_date": "2025-11-20",
+            "holding_period": "short_term",
+            "gain_type": "STCG",
+            "sale_consideration": 150000,
+            "acquisition_cost": 125000,
+            "quantity": 10,
+            "is_listed": True,
+            "stt_paid_on_transfer": True,
+        }],
+        deductions=[{
+            "section": "80G",
+            "amount": 5000,
+            "donation_category": "50_no_limit",
+            "donation_mode": "non_cash",
+            "donation_reference": "RECEIPT-2026-01",
+            "donation_ifsc": "HDFC0001234",
+            "donation_eligible": True,
+        }],
+        taxes_paid=[{"tax_type": "tds", "amount": 150000, "reference": "FORM16"}],
+    )
+
+    selection = select_return(profile)
+    assert selection.eligible is True
+    assert selection.recommended_itr == "ITR-2"
+    assert selection.preparation_supported is True
+    preparation = prepare_return(profile, "Rahul Sharma")
+    reported_gain = preparation["schedules"]["capital_gains"][0]
+    assert reported_gain["asset_identifier"] == "NSE:EXAMPLE"
+    assert reported_gain["source_reported_holding_period"] == "short_term"
+    assert reported_gain["holding_period"] == "short_term"
+
+
 def test_selector_recommends_itr4_only_for_presumptive_income():
     profile = base_profile(
         salary_income=[],

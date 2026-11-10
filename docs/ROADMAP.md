@@ -4,10 +4,10 @@ This roadmap separates active code paths from work that still needs implementati
 
 ## Implemented
 
-- JWT authentication, profile persistence, and conversational onboarding with explicit confirmation of proposed profile updates.
+- JWT authentication and Tax Profile persistence, with the conversational onboarding UI deprecated and its API retained for compatibility.
 - Deterministic AY 2026-27 tax calculation, old/new regime comparison, supported deduction and capital-gain calculations, and structured calculation breakdowns.
 - Local assessment-year-versioned tax notes connected to chat through hybrid BM25 and TF-IDF retrieval. Chat receives verified calculation facts; unsupported questions without matching knowledge are declined.
-- PDF/Excel upload, text and field extraction, optional OCR when Tesseract is installed, private per-user passage retrieval, and a user confirm/reject step before profile changes.
+- PDF/Excel upload, extraction, optional OCR, private per-user passage retrieval, and an owner-scoped fact/evidence store with per-field review, conflict resolution, readiness reporting, and a Tax Profile compatibility projection.
 - General return-family selection with reasons and unsupported conditions.
 - ITR-1 eligibility, preparation summary, recalculation, result explanation, and review PDF.
 - Limited ITR-3 business-income summary for supported non-presumptive profiles, using user-entered non-negative net profit and the shared tax engine.
@@ -17,7 +17,7 @@ This roadmap separates active code paths from work that still needs implementati
 - ITR-2 and ITR-4 preparation, plus completion of ITR-3 statutory schedules. Current ITR-3 output is a review summary, not a completed return.
 - Complete statutory schedules, official return export, e-filing, e-verification, acknowledgements, and government/bank integrations.
 - Foreign schedules, persistent loss-history management, and full business books/expense/depreciation computation.
-- Per-field editing of extracted document candidates, document conflict reconciliation, OCR setup automation, protected persistent file storage, and retention controls.
+- Complete ITR-specific dynamic fact requirements/readiness rules, OCR setup automation, protected persistent file storage, and retention controls.
 - Knowledge-note coverage beyond current project rules, reviewed external rule-source synchronization, and additional assessment years.
 - Production hardening beyond the current baseline remains: secrets management, rate limiting, audit logging, encryption/retention policy, monitoring, and formal security/compliance review.
 

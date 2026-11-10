@@ -22,13 +22,26 @@ Authenticated `/api/v1` requests use `Authorization: Bearer <access_token>`, exc
 | `GET` | `/api/v1/tax-profiles/{profile_id}` | Read an owned profile |
 | `PUT` | `/api/v1/tax-profiles/{profile_id}` | Update an owned profile |
 | `DELETE` | `/api/v1/tax-profiles/{profile_id}` | Delete an owned profile |
-| `POST` | `/api/v1/onboarding/session` | Start or resume onboarding |
-| `GET` | `/api/v1/onboarding/session` | Read onboarding state |
-| `GET` | `/api/v1/onboarding/progress` | Read completion progress |
-| `POST` | `/api/v1/onboarding/message` | Submit a structured onboarding answer |
-| `POST` | `/api/v1/onboarding/confirm` | Confirm or reject a pending profile candidate |
+| `POST` | `/api/v1/onboarding/session` | Legacy: start or resume onboarding |
+| `GET` | `/api/v1/onboarding/session` | Legacy: read onboarding state |
+| `GET` | `/api/v1/onboarding/progress` | Legacy: read completion progress |
+| `POST` | `/api/v1/onboarding/message` | Legacy: submit a structured onboarding answer |
+| `POST` | `/api/v1/onboarding/confirm` | Legacy: confirm or reject a pending profile candidate |
 
-The legacy `POST /api/v1/tax-profiles/{profile_id}/documents` endpoint is retired and returns `410 Gone`.
+The conversational onboarding UI is deprecated. New clients should use the Tax Profile, document facts, and readiness APIs. Legacy onboarding routes are retained for existing clients. The `POST /api/v1/tax-profiles/{profile_id}/documents` endpoint is retired and returns `410 Gone`.
+
+## Taxpayer Facts
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/facts/` | List the authenticated user's facts and evidence |
+| `GET` | `/api/v1/facts/reconciliation` | Group facts by key and show source values and conflicts |
+| `GET` | `/api/v1/facts/readiness` | Report fact completeness for an assessment year |
+| `GET` | `/api/v1/facts/determination` | Combine readiness with the existing ITR selection result |
+| `POST` | `/api/v1/facts/{fact_id}/resolve` | Confirm, reject, keep, accept, or correct one fact |
+| `POST` | `/api/v1/facts/documents/{document_id}/resolve` | Confirm or reject an owned document's pending facts |
+
+Fact endpoints are owner-scoped and assessment-year-aware. Resolution actions update the validated Tax Profile projection only for mapped confirmed facts. Sensitive identifiers are masked in responses. Readiness is an initial report, not a complete statutory requirements engine.
 
 ## Tax Calculation
 
@@ -56,12 +69,12 @@ The route retrieves matching assessment-year notes and, for questions explicitly
 | `POST` | `/api/v1/documents/` | Register document metadata only (`202 Accepted`) |
 | `POST` | `/api/v1/documents/upload` | Upload PDF/Excel, max 10 MB (`202 Accepted`) |
 | `POST` | `/api/v1/documents/{document_id}/process` | Extract candidate fields for review |
-| `POST` | `/api/v1/onboarding/document-candidate` | Stage candidate values for an owned pending document |
-| `POST` | `/api/v1/onboarding/confirm` | Confirm or reject staged values |
+| `POST` | `/api/v1/onboarding/document-candidate` | Legacy: stage candidate values |
+| `POST` | `/api/v1/onboarding/confirm` | Legacy: confirm or reject staged values |
 | `GET` | `/api/v1/documents/` | List the current user's documents |
 | `DELETE` | `/api/v1/documents/{document_id}` | Delete an owned document and its temporary file |
 
-Processing returns extracted candidates and onboarding-compatible values and indexes passages for private chat retrieval. Extraction does not update the profile. Confirmation validates and merges values; rejection leaves the profile unchanged and removes that document from search. Only the owner can retrieve a processed document; deletion removes its indexed passages and temporary file. Scanned PDF OCR requires the Tesseract executable to be installed on the backend host.
+Processing returns extracted candidates, persists facts and evidence, and indexes passages for private chat retrieval. Extraction does not update the profile. The new fact review flow resolves candidates individually; only confirmed mapped values update the profile projection. Only the owner can retrieve a processed document; deletion removes its indexed passages, facts, evidence, and temporary file. Scanned PDF OCR requires the Tesseract executable to be installed on the backend host.
 
 ## Return Selection and Preparation
 

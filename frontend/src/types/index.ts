@@ -19,7 +19,7 @@ export interface HouseProperty { property_type: 'self_occupied' | 'let_out' | 'd
 export interface OtherIncome { income_type: 'interest' | 'dividend' | 'family_pension' | 'other'; description: string; amount: Money; tds: Money; }
 export interface CapitalGain {
   asset_type: 'listed_equity_share' | 'equity_oriented_mutual_fund' | 'other_security' | 'immovable_property' | 'gold_or_other';
-  acquisition_date?: string; sale_date?: string; sale_consideration: Money; acquisition_cost: Money;
+  asset_identifier?: string; acquisition_date?: string; sale_date?: string; holding_period?: string; gain_type?: string; sale_consideration: Money; acquisition_cost: Money;
   improvement_cost: Money; transfer_expenses: Money; quantity?: Money; is_listed?: boolean;
   is_equity_oriented?: boolean; stt_paid_on_acquisition?: boolean; stt_paid_on_transfer?: boolean;
   grandfathered_fmv_2018?: Money;
@@ -31,6 +31,7 @@ export interface Deduction {
   section: string; amount: Money; self_health_insurance?: Money; family_health_insurance?: Money; parents_health_insurance?: Money;
   parents_senior?: boolean; employer_contribution?: Money; employer_is_government?: boolean; basic_salary?: Money;
   dearness_allowance_for_retirement?: Money; donation_category?: '100_no_limit' | '50_no_limit' | '100_qualifying_limit' | '50_qualifying_limit';
+  donation_reference?: string; donation_ifsc?: string;
   specified_disease?: boolean; reimbursement_amount?: Money; annual_rent?: Money; owns_residential_property?: boolean; has_hra?: boolean;
   education_loan_interest?: Money; education_loan_eligible?: boolean; disability_percentage?: number; is_dependent?: boolean;
   medical_expenditure?: Money; loan_sanction_date?: string; first_home_owner?: boolean; property_stamp_duty_value?: Money; loan_amount?: Money;
