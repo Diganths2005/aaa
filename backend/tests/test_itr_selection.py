@@ -58,6 +58,7 @@ def test_selector_recommends_itr4_only_for_presumptive_income():
             "gross_receipts": 500000,
             "net_profit_or_loss": 300000,
             "presumptive_section": "44ADA",
+            "cash_receipts_within_5pct": False,
         }],
     )
     selection = select_return(profile)
